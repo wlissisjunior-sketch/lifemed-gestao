@@ -1,0 +1,566 @@
+[
+ {
+  "tabela": "usuarios",
+  "descricao": "Pessoas que acessam o sistema (login).",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": "PK, autoincremento"
+   },
+   {
+    "nome": "nome",
+    "mysql": "VARCHAR(150)",
+    "sqlserver": "NVARCHAR(150)",
+    "obs": "obrigatório"
+   },
+   {
+    "nome": "email",
+    "mysql": "VARCHAR(200)",
+    "sqlserver": "NVARCHAR(200)",
+    "obs": "único"
+   },
+   {
+    "nome": "senha_hash",
+    "mysql": "VARCHAR(255)",
+    "sqlserver": "NVARCHAR(255)",
+    "obs": "bcrypt/argon2, nunca a senha"
+   },
+   {
+    "nome": "papel",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "admin | operador | leitor | pendente"
+   },
+   {
+    "nome": "ativo",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": "1 = pode entrar"
+   },
+   {
+    "nome": "criado_em",
+    "mysql": "DATETIME",
+    "sqlserver": "DATETIME2",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "servicos",
+  "descricao": "Serviços, pacotes e medicamentos faturáveis (tela Serviços e valores).",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "PK, ex. s01"
+   },
+   {
+    "nome": "ordem",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": "ordem de exibição"
+   },
+   {
+    "nome": "categoria",
+    "mysql": "VARCHAR(80)",
+    "sqlserver": "NVARCHAR(80)",
+    "obs": ""
+   },
+   {
+    "nome": "nome",
+    "mysql": "VARCHAR(120)",
+    "sqlserver": "NVARCHAR(120)",
+    "obs": "nome curto"
+   },
+   {
+    "nome": "descricao",
+    "mysql": "VARCHAR(300)",
+    "sqlserver": "NVARCHAR(300)",
+    "obs": "descrição oficial nos relatórios"
+   },
+   {
+    "nome": "valor",
+    "mysql": "DECIMAL(12,2)",
+    "sqlserver": "DECIMAL(12,2)",
+    "obs": "valor unitário vigente"
+   },
+   {
+    "nome": "eh_pacote",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": "1 = diária/gerenciamento"
+   },
+   {
+    "nome": "eh_medicamento",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": "1 = regra por valor da dose"
+   },
+   {
+    "nome": "limite_medicamento",
+    "mysql": "DECIMAL(12,2) NULL",
+    "sqlserver": "DECIMAL(12,2) NULL",
+    "obs": "só pacotes: R$ por dose incluso"
+   },
+   {
+    "nome": "ativo",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "pacote_regras",
+  "descricao": "O que cada pacote já inclui (tela Pacotes e inclusos).",
+  "colunas": [
+   {
+    "nome": "pacote_id",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "PK, FK servicos"
+   },
+   {
+    "nome": "servico_id",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "PK, FK servicos"
+   },
+   {
+    "nome": "limite",
+    "mysql": "VARCHAR(5)",
+    "sqlserver": "VARCHAR(5)",
+    "obs": "dias = até 1 por dia de pacote | total"
+   }
+  ]
+ },
+ {
+  "tabela": "pacientes",
+  "descricao": "Cadastro de pacientes.",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "VARCHAR(40)",
+    "sqlserver": "VARCHAR(40)",
+    "obs": "PK"
+   },
+   {
+    "nome": "nome",
+    "mysql": "VARCHAR(200)",
+    "sqlserver": "NVARCHAR(200)",
+    "obs": "único"
+   },
+   {
+    "nome": "cns",
+    "mysql": "CHAR(15) NULL",
+    "sqlserver": "CHAR(15) NULL",
+    "obs": "cartão SUS"
+   },
+   {
+    "nome": "municipio",
+    "mysql": "VARCHAR(100) NULL",
+    "sqlserver": "NVARCHAR(100) NULL",
+    "obs": ""
+   },
+   {
+    "nome": "data_admissao",
+    "mysql": "DATE NULL",
+    "sqlserver": "DATE NULL",
+    "obs": ""
+   },
+   {
+    "nome": "ativo",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "competencias",
+  "descricao": "Meses de fechamento.",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "CHAR(7)",
+    "sqlserver": "CHAR(7)",
+    "obs": "PK, AAAA-MM"
+   },
+   {
+    "nome": "data_inicio",
+    "mysql": "DATE",
+    "sqlserver": "DATE",
+    "obs": ""
+   },
+   {
+    "nome": "data_fim",
+    "mysql": "DATE",
+    "sqlserver": "DATE",
+    "obs": ""
+   },
+   {
+    "nome": "status",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "aberta | fechada"
+   },
+   {
+    "nome": "fechada_por",
+    "mysql": "INT NULL",
+    "sqlserver": "INT NULL",
+    "obs": "FK usuarios"
+   },
+   {
+    "nome": "fechada_em",
+    "mysql": "DATETIME NULL",
+    "sqlserver": "DATETIME2 NULL",
+    "obs": ""
+   },
+   {
+    "nome": "criada_em",
+    "mysql": "DATETIME",
+    "sqlserver": "DATETIME2",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "lancamentos",
+  "descricao": "Serviços usados por paciente no mês (tela Checklist).",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "VARCHAR(40)",
+    "sqlserver": "VARCHAR(40)",
+    "obs": "PK"
+   },
+   {
+    "nome": "competencia_id",
+    "mysql": "CHAR(7)",
+    "sqlserver": "CHAR(7)",
+    "obs": "FK competencias"
+   },
+   {
+    "nome": "paciente_id",
+    "mysql": "VARCHAR(40)",
+    "sqlserver": "VARCHAR(40)",
+    "obs": "FK pacientes"
+   },
+   {
+    "nome": "servico_id",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "FK servicos"
+   },
+   {
+    "nome": "quantidade",
+    "mysql": "DECIMAL(14,4)",
+    "sqlserver": "DECIMAL(14,4)",
+    "obs": "diárias, unidades ou horas (7:37 = 7,6167)"
+   },
+   {
+    "nome": "data_inicio",
+    "mysql": "DATE NULL",
+    "sqlserver": "DATE NULL",
+    "obs": ""
+   },
+   {
+    "nome": "data_fim",
+    "mysql": "DATE NULL",
+    "sqlserver": "DATE NULL",
+    "obs": ""
+   },
+   {
+    "nome": "modo",
+    "mysql": "VARCHAR(6)",
+    "sqlserver": "VARCHAR(6)",
+    "obs": "auto | cobrar (cobrar mesmo dentro do pacote)"
+   },
+   {
+    "nome": "valor_unitario",
+    "mysql": "DECIMAL(12,2)",
+    "sqlserver": "DECIMAL(12,2)",
+    "obs": "congelado no dia do lançamento"
+   },
+   {
+    "nome": "observacao",
+    "mysql": "VARCHAR(300) NULL",
+    "sqlserver": "NVARCHAR(300) NULL",
+    "obs": ""
+   },
+   {
+    "nome": "criado_por",
+    "mysql": "INT NULL",
+    "sqlserver": "INT NULL",
+    "obs": "FK usuarios"
+   },
+   {
+    "nome": "criado_em",
+    "mysql": "DATETIME",
+    "sqlserver": "DATETIME2",
+    "obs": ""
+   },
+   {
+    "nome": "alterado_por",
+    "mysql": "INT NULL",
+    "sqlserver": "INT NULL",
+    "obs": "FK usuarios"
+   },
+   {
+    "nome": "alterado_em",
+    "mysql": "DATETIME NULL",
+    "sqlserver": "DATETIME2 NULL",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "tipos_relatorio",
+  "descricao": "Tipos de relatório controlados (Médico, Enfermagem…).",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "VARCHAR(20)",
+    "sqlserver": "VARCHAR(20)",
+    "obs": "PK"
+   },
+   {
+    "nome": "nome",
+    "mysql": "VARCHAR(80)",
+    "sqlserver": "NVARCHAR(80)",
+    "obs": ""
+   },
+   {
+    "nome": "ordem",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": ""
+   },
+   {
+    "nome": "ativo",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "relatorios_status",
+  "descricao": "Relatório entregue por paciente e mês (tela Relatórios). Sem linha = pendente.",
+  "colunas": [
+   {
+    "nome": "competencia_id",
+    "mysql": "CHAR(7)",
+    "sqlserver": "CHAR(7)",
+    "obs": "PK, FK competencias"
+   },
+   {
+    "nome": "paciente_id",
+    "mysql": "VARCHAR(40)",
+    "sqlserver": "VARCHAR(40)",
+    "obs": "PK, FK pacientes"
+   },
+   {
+    "nome": "tipo_id",
+    "mysql": "VARCHAR(20)",
+    "sqlserver": "VARCHAR(20)",
+    "obs": "PK, FK tipos_relatorio"
+   },
+   {
+    "nome": "status",
+    "mysql": "VARCHAR(10)",
+    "sqlserver": "VARCHAR(10)",
+    "obs": "entregue | pendente"
+   },
+   {
+    "nome": "atualizado_por",
+    "mysql": "INT NULL",
+    "sqlserver": "INT NULL",
+    "obs": "FK usuarios"
+   },
+   {
+    "nome": "atualizado_em",
+    "mysql": "DATETIME",
+    "sqlserver": "DATETIME2",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "planserv_versoes",
+  "descricao": "Cada importação da tabela PLANSERV.",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": "PK, autoincremento"
+   },
+   {
+    "nome": "versao",
+    "mysql": "DATE NULL",
+    "sqlserver": "DATE NULL",
+    "obs": "data da tabela"
+   },
+   {
+    "nome": "arquivo",
+    "mysql": "VARCHAR(255)",
+    "sqlserver": "NVARCHAR(255)",
+    "obs": ""
+   },
+   {
+    "nome": "itens",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": ""
+   },
+   {
+    "nome": "importado_por",
+    "mysql": "INT NULL",
+    "sqlserver": "INT NULL",
+    "obs": "FK usuarios"
+   },
+   {
+    "nome": "importado_em",
+    "mysql": "DATETIME",
+    "sqlserver": "DATETIME2",
+    "obs": ""
+   },
+   {
+    "nome": "vigente",
+    "mysql": "TINYINT(1)",
+    "sqlserver": "BIT",
+    "obs": "1 = versão em uso"
+   }
+  ]
+ },
+ {
+  "tabela": "planserv_medicamentos",
+  "descricao": "Itens da tabela PLANSERV.",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "BIGINT",
+    "sqlserver": "BIGINT",
+    "obs": "PK, autoincremento"
+   },
+   {
+    "nome": "versao_id",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": "FK planserv_versoes"
+   },
+   {
+    "nome": "codigo",
+    "mysql": "VARCHAR(20)",
+    "sqlserver": "VARCHAR(20)",
+    "obs": ""
+   },
+   {
+    "nome": "descricao",
+    "mysql": "VARCHAR(400)",
+    "sqlserver": "NVARCHAR(400)",
+    "obs": ""
+   },
+   {
+    "nome": "fracao",
+    "mysql": "VARCHAR(40) NULL",
+    "sqlserver": "NVARCHAR(40) NULL",
+    "obs": ""
+   },
+   {
+    "nome": "unidade",
+    "mysql": "VARCHAR(40) NULL",
+    "sqlserver": "NVARCHAR(40) NULL",
+    "obs": ""
+   },
+   {
+    "nome": "valor",
+    "mysql": "DECIMAL(12,2) NULL",
+    "sqlserver": "DECIMAL(12,2) NULL",
+    "obs": ""
+   },
+   {
+    "nome": "grupo",
+    "mysql": "VARCHAR(120) NULL",
+    "sqlserver": "NVARCHAR(120) NULL",
+    "obs": ""
+   }
+  ]
+ },
+ {
+  "tabela": "dietas_anexo2",
+  "descricao": "Valores de referência do Anexo II (dietas e suplementos).",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "INT",
+    "sqlserver": "INT",
+    "obs": "PK, nº do item"
+   },
+   {
+    "nome": "descricao",
+    "mysql": "VARCHAR(300)",
+    "sqlserver": "NVARCHAR(300)",
+    "obs": ""
+   },
+   {
+    "nome": "valor",
+    "mysql": "DECIMAL(12,2)",
+    "sqlserver": "DECIMAL(12,2)",
+    "obs": ""
+   },
+   {
+    "nome": "vigencia",
+    "mysql": "VARCHAR(80)",
+    "sqlserver": "NVARCHAR(80)",
+    "obs": "ex. DOE-BA 15/04/2026"
+   }
+  ]
+ },
+ {
+  "tabela": "auditoria",
+  "descricao": "Histórico de alterações.",
+  "colunas": [
+   {
+    "nome": "id",
+    "mysql": "BIGINT",
+    "sqlserver": "BIGINT",
+    "obs": "PK, autoincremento"
+   },
+   {
+    "nome": "em",
+    "mysql": "DATETIME",
+    "sqlserver": "DATETIME2",
+    "obs": ""
+   },
+   {
+    "nome": "usuario_id",
+    "mysql": "INT NULL",
+    "sqlserver": "INT NULL",
+    "obs": "FK usuarios"
+   },
+   {
+    "nome": "acao",
+    "mysql": "VARCHAR(60)",
+    "sqlserver": "NVARCHAR(60)",
+    "obs": ""
+   },
+   {
+    "nome": "alvo",
+    "mysql": "VARCHAR(200)",
+    "sqlserver": "NVARCHAR(200)",
+    "obs": ""
+   },
+   {
+    "nome": "detalhe",
+    "mysql": "VARCHAR(1000) NULL",
+    "sqlserver": "NVARCHAR(1000) NULL",
+    "obs": ""
+   }
+  ]
+ }
+]

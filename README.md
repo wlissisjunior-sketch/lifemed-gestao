@@ -1,85 +1,45 @@
-# LifeMed Gestão — MVP/Protótipo
+# Sistema de Fechamento LifeMed
 
-Aplicação web (SaaS interno) para gestão de atendimento domiciliar,
-desenvolvida como protótipo funcional para avaliação visual e de fluxo.
-Todos os dados são fictícios — nenhum dado real de paciente é usado.
+Lançamento de serviços por paciente, regras de pacote (Diário Oficial BA, 15/04/2026), faturamento por paciente,
+físico-financeiro, fechamento individual (PDF/Excel), controle de relatórios entregues e tabelas PLANSERV e Anexo II.
+Funciona no computador e no celular.
 
-## Rodando localmente
+## Esta versão (demonstração)
 
+- Os dados ficam **no navegador de quem abre** (localStorage). Cada pessoa vê a própria cópia, iniciada com
+  dados de exemplo de agosto/2026 (pacientes fictícios; serviços, valores e regras reais).
+- Entrada por escolha de perfil (Administrador, Operador, Leitor). Em *Competências e ajustes* há
+  “Restaurar dados de exemplo”.
+
+## Publicar na Vercel
+
+**Opção 1 — pelo computador (sem GitHub):**
 ```bash
 npm install
-npm run dev
+npx vercel --prod        # faz login no navegador na primeira vez e publica
 ```
 
-Acesse `http://localhost:5173`. Na tela de login, qualquer e-mail e
-senha preenchidos entram no sistema (autenticação real entra quando o
-Supabase for conectado — ver abaixo).
+**Opção 2 — pelo GitHub:** envie esta pasta para um repositório, entre em vercel.com → *Add New → Project*,
+importe o repositório e clique em *Deploy* (a Vercel detecta o Vite sozinha).
 
-Para gerar a versão de produção:
-
+## Rodar localmente
 ```bash
-npm run build
-npm run preview
+npm install
+npm run dev              # http://localhost:5173
 ```
 
-## O que já está funcional nesta fase
+## Passar para banco de dados (MySQL ou SQL Server)
 
-Conforme combinado, esta primeira entrega cobre **layout geral, login,
-dashboard, listagem de pacientes e perfil completo do paciente**:
+1. Crie o banco e rode `sql/<mysql|sqlserver>/01_schema.sql` e `02_catalogo.sql`.
+2. Crie um backend (API) com as rotas de `docs/modelo-de-dados.md` e login com e-mail e senha.
+3. Troque o adaptador em `src/lib/datasource.ts` por chamadas à API. As telas não mudam.
 
-- **Login** — tela com e-mail, senha, "lembrar acesso" e mensagem de
-  ambiente seguro.
-- **Layout principal** — menu lateral (vira drawer no mobile), header
-  com busca global e notificações, breadcrumbs.
-- **Dashboard** — cards de indicadores, trilho de etapas do paciente
-  (elemento visual reaproveitado no perfil do paciente), gráfico de
-  pacientes por etapa, atendimentos por mês, distribuição por
-  profissional e lista de pendências.
-- **Pacientes** — busca, filtro por status, tabela e paginação.
-- **Novo paciente** — formulário dividido em seções (dados pessoais,
-  endereço, contato do responsável, atendimento).
-- **Perfil do paciente** — cabeçalho com trilho de etapas e abas:
-  Resumo, Dados cadastrais, Avaliações, Orçamentos, Atendimentos,
-  Visitas, Prorrogações, Aditivos, Documentos e Histórico.
-- **Instituições** e **Profissionais** — listagens funcionais com os
-  dados fictícios já cadastrados.
-
-Os demais módulos do menu (Avaliações, Orçamentos, Atendimentos,
-Visitas, Prorrogações, Aditivos, Materiais, Documentos, Relatórios,
-Configurações) já têm navegação, rota e o mesmo padrão visual — o
-conteúdo funcional completo de cada um entra na próxima fase, mantendo
-esse padrão.
-
-## Estrutura do projeto
-
+## Estrutura
 ```
-src/
-  components/         Componentes reutilizáveis (Card, Badge, StageRail…)
-  components/layout/  Sidebar, Header, Breadcrumbs, AppShell
-  context/             AuthContext (mock de autenticação)
-  data/mockData.js     Todos os dados fictícios (pacientes, instituições,
-                        profissionais, orçamentos, histórico…)
-  pages/                Uma página por rota
+src/lib/engine.ts       regra de cobrança (pura, testada contra as planilhas de agosto/2026)
+src/lib/views.ts        faturamento, físico-financeiro, fechamento, relatórios
+src/lib/datasource.ts   camada de dados (trocar aqui pelo banco)
+src/pages/              telas
+sql/                    esquema MySQL e SQL Server + dados de catálogo
+docs/                   modelo de dados e contrato da API
 ```
-
-A estrutura foi pensada para que, ao conectar o Supabase, `mockData.js`
-seja substituído por chamadas reais (`supabase-js`) sem precisar
-reescrever os componentes — cada página já consome os dados através de
-funções isoladas (`institutionName()`, `historyFor()`,
-`budgetsFor()` etc.).
-
-## Próximos passos sugeridos
-
-1. Conectar Supabase (auth real + Postgres) seguindo as entidades já
-   mapeadas em `mockData.js`: `patients`, `institutions`,
-   `professionals`, `social_evaluations`, `clinical_evaluations`,
-   `budgets`, `budget_items`, `approvals`, `materials`,
-   `material_movements`, `visits`, `attendances`, `extensions`,
-   `addendums`, `documents`, `notifications`, `audit_history`.
-2. Implementar Row Level Security por perfil (Administrador, ADM,
-   Enfermeiro, Médico, Fisioterapeuta, Avaliação Social, Gestor).
-3. Construir os formulários funcionais dos módulos ainda em
-   placeholder (avaliação social/clínica, orçamento com cálculo de
-   itens, prorrogação, aditivo, upload real de documentos/fotos).
-4. Upload de imagens com acesso à câmera do celular (input
-   `capture="environment"`) nos formulários de evidência.
