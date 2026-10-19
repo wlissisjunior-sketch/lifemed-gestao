@@ -89,7 +89,7 @@ export function Medicamentos() {
             <form className="card stack" onSubmit={importar}>
               <h2>Atualizar a tabela</h2>
               <p className="hint">Envie a tabela PLANSERV em .xlsx, no mesmo layout (colunas “CÓDIGO DO MEDICAMENTO”, “DESCRIÇÃO DO MEDICAMENTO” e “VALOR (R$)”).</p>
-              <input ref={file} id="md-file" type="file" accept=".xlsx,.xls" required aria-label="Arquivo da tabela" />
+              <input ref={file} id="md-file" type="file" style={{ maxWidth: "100%", minWidth: 0 }} accept=".xlsx,.xls" required aria-label="Arquivo da tabela" />
               <button className="btn" disabled={busy}>{busy ? "Importando…" : "Importar tabela"}</button>
             </form>
           ) : <Banner kind="info">Somente administradores atualizam a tabela.</Banner>}
