@@ -1,7 +1,8 @@
+import { Pad, padsDoPeriodo } from "./pad";
 import { computePatient, includes, LineResult, Line, Rules, Svc, r2 } from "./engine";
 
 export interface Paciente { id: string; nome: string; cns: string; municipio: string; admissao: string; ativo: boolean }
-export interface Lanc { id: string; comp: string; pac: string; sid: string; qtd: number; ini?: string; fim?: string; modo: "auto" | "cobrar"; vu: number; obs?: string; por?: string; em?: string; editPor?: string; editEm?: string }
+export interface Lanc { id: string; comp: string; pac: string; sid: string; qtd: number; ini?: string; fim?: string; modo: "auto" | "cobrar"; vu: number; obs?: string; por?: string; em?: string; editPor?: string; editEm?: string; origem?: string }
 export interface Tipo { id: string; nome: string }
 
 export const toLine = (l: Lanc): Line => ({ id: l.id, sid: l.sid, qtd: Number(l.qtd) || 0, ini: l.ini || undefined, fim: l.fim || undefined, modo: l.modo || "auto", vu: Number(l.vu) || 0 });
@@ -84,17 +85,35 @@ export function fechamento(rs: LineResult[]) {
   return { linhas, total: sum(linhas.map((l) => l.total)), naoCobrado: sum(rs.map((r) => r.naoCobrado)) };
 }
 
-export function matrizRelatorios(pacs: Paciente[], tipos: Tipo[], rels: Record<string, { pac: string; st: Record<string, string> }>) {
+export function matrizRelatorios(pacs: Paciente[], tipos: Tipo[], rels: Record<string, { pac: string; st: Record<string, string>; arq?: Record<string, any> }>, exig: Record<string, string[] | null> = {}) {
   const ativos = pacs.filter((p) => p.ativo).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-  const byPac: Record<string, Record<string, string>> = {};
-  for (const r of Object.values(rels)) byPac[r.pac] = r.st || {};
+  const byPac: Record<string, { st: Record<string, string>; arq: Record<string, any> }> = {};
+  for (const r of Object.values(rels)) byPac[r.pac] = { st: r.st || {}, arq: r.arq || {} };
   const linhas = ativos.map((p) => {
-    const st = byPac[p.id] || {};
-    const ent = tipos.filter((t) => st[t.id] === "entregue").length;
-    return { p, st, entregues: ent, pendentes: tipos.length - ent, pct: tipos.length ? ent / tipos.length : 0 };
+    const { st, arq } = byPac[p.id] || { st: {}, arq: {} };
+    const e = exig[p.id];
+    const req = new Set((e ? tipos.filter((t) => e.includes(t.id)) : tipos).map((t) => t.id));
+    const ent = tipos.filter((t) => req.has(t.id) && st[t.id] === "entregue").length;
+    const semArq = tipos.filter((t) => st[t.id] === "entregue" && !arq[t.id]).length;
+    return { p, st, arq, req, porPad: !!e, total: req.size, entregues: ent, pendentes: req.size - ent, semArquivo: semArq, pct: req.size ? ent / req.size : 1 };
   });
-  const esperados = ativos.length * tipos.length;
+  const esperados = linhas.reduce((a, l) => a + l.total, 0);
   const entregues = linhas.reduce((a, l) => a + l.entregues, 0);
-  const porTipo = tipos.map((t) => { const e = linhas.filter((l) => l.st[t.id] === "entregue").length; return { t, entregues: e, pendentes: ativos.length - e }; });
-  return { linhas, esperados, entregues, pendentes: esperados - entregues, pct: esperados ? entregues / esperados : 0, porTipo };
+  const porTipo = tipos.map((t) => {
+    const rq = linhas.filter((l) => l.req.has(t.id));
+    const e = rq.filter((l) => l.st[t.id] === "entregue").length;
+    return { t, entregues: e, pendentes: rq.length - e };
+  });
+  return { linhas, esperados, entregues, pendentes: esperados - entregues, pct: esperados ? entregues / esperados : 0, porTipo, semArquivo: linhas.reduce((a, l) => a + l.semArquivo, 0) };
+}
+
+/** Relatórios exigidos por paciente na competência: os do PAD em vigor; sem PAD, todos os tipos (null). */
+export function exigidosDoMes(pacs: Paciente[], pads: Pad[], comp: { ini: string; fim: string } | null): Record<string, string[] | null> {
+  const m: Record<string, string[] | null> = {};
+  if (!comp) return m;
+  for (const p of pacs) {
+    const ps = padsDoPeriodo(pads, p.id, comp.ini, comp.fim);
+    m[p.id] = ps.length ? [...new Set(ps.flatMap((x) => x.relatorios || []))] : null;
+  }
+  return m;
 }

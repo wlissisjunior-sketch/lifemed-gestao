@@ -1,19 +1,31 @@
 import { useStore } from "../lib/store";
-import { useResults } from "../lib/hooks";
-import { fisicoFinanceiro, matrizRelatorios, overview } from "../lib/views";
-import { dateBR, mesAno, money, pct, shortName } from "../lib/format";
+import { useResults, useMatriz } from "../lib/hooks";
+import { situacao, ultimasVersoes } from "../lib/pad";
+import { fisicoFinanceiro, overview } from "../lib/views";
+import { dateBR, mesAno, money, pct, shortName, todayISO } from "../lib/format";
 import { Banner, Empty, PageHead, useNav } from "../components/ui";
 
 const { useMemo } = React;
 
 export default function Inicio() {
-  const { comp, svcList, pacList, tipos, rels, editavel, can } = useStore();
+  const { comp, svcList, pacList, editavel, can, pads } = useStore();
   const { go } = useNav();
   const res = useResults();
   const all = useMemo(() => Object.values(res).flat(), [res]);
   const ff = useMemo(() => fisicoFinanceiro(svcList, all), [svcList, all]);
   const ov = useMemo(() => overview(pacList, res), [pacList, res]);
-  const m = useMemo(() => matrizRelatorios(pacList, tipos, rels), [pacList, tipos, rels]);
+  const alertas = useMemo(() => {
+    const ult = ultimasVersoes(pads); const hoje = todayISO();
+    const ativos = pacList.filter((p) => p.ativo);
+    const comPad = ativos.map((p) => ({ p, pad: ult[p.id], s: ult[p.id] ? situacao(ult[p.id], hoje) : null }));
+    return {
+      avencer: comPad.filter((x) => x.s?.k === "avencer"),
+      vencidos: comPad.filter((x) => x.s?.k === "vencido"),
+      aguardando: comPad.filter((x) => x.s?.k === "enviado"),
+      sem: comPad.filter((x) => !x.pad),
+    };
+  }, [pads, pacList]);
+  const m = useMatriz();
   if (!comp) return (
     <>
       <PageHead title="Bem-vindo" />
@@ -36,6 +48,14 @@ export default function Inicio() {
           <div className="kpi ok"><span>Relatórios entregues</span><b>{m.entregues} de {m.esperados}</b><small>{pct(m.pct)} concluído</small></div>
           <div className="kpi warn"><span>Ativos sem lançamento</span><b>{sem.length}</b><small>de {pacList.filter((p) => p.ativo).length} pacientes ativos</small></div>
         </div>
+        {(alertas.avencer.length + alertas.vencidos.length + alertas.aguardando.length) > 0 && (
+          <Banner kind="warn"><b>PAD:</b>{" "}
+            {alertas.avencer.map((x) => `${shortName(x.p.nome)} (${x.s!.label.toLowerCase()})`).join(", ")}{alertas.avencer.length > 0 && alertas.vencidos.length > 0 ? " · " : ""}
+            {alertas.vencidos.length > 0 && `vencido: ${alertas.vencidos.map((x) => shortName(x.p.nome)).join(", ")}`}
+            {alertas.aguardando.length > 0 && ` · aguardando autorização: ${alertas.aguardando.length}`}
+            {alertas.sem.length > 0 && ` · ${alertas.sem.length} paciente(s) ativo(s) sem PAD`}{" "}
+            <button className="btn ghost sm" onClick={() => go("pad")}>Ver planos</button></Banner>
+        )}
         {sem.length > 0 && editavel && (
           <Banner kind="warn">Ainda sem serviços lançados: {sem.slice(0, 6).map((o) => shortName(o.p.nome)).join(", ")}{sem.length > 6 ? ` e mais ${sem.length - 6}` : ""}.{" "}
             <button className="btn ghost sm" onClick={() => go("checklist")}>Abrir o checklist</button></Banner>
@@ -52,10 +72,10 @@ export default function Inicio() {
           <div className="card stack">
             <h2>O mês em quatro passos</h2>
             <ol className="small" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
-              <li><b>Lançar</b> o pacote e os serviços de cada paciente, com as datas, no <button className="btn ghost sm" onClick={() => go("checklist")}>Checklist</button></li>
+              <li><b>Planejar</b> o <button className="btn ghost sm" onClick={() => go("pad")}>PAD</button> de cada paciente e <b>lançar</b> o mês no <button className="btn ghost sm" onClick={() => go("checklist")}>Checklist</button></li>
               <li><b>Conferir</b> o <button className="btn ghost sm" onClick={() => go("faturamento")}>Faturamento</button> e o <button className="btn ghost sm" onClick={() => go("fisico")}>Físico-financeiro</button></li>
               <li><b>Emitir</b> o <button className="btn ghost sm" onClick={() => go("fechamento")}>Fechamento</button> de cada paciente em PDF</li>
-              <li><b>Marcar</b> os <button className="btn ghost sm" onClick={() => go("relatorios")}>Relatórios</button> entregues e fechar a competência</li>
+              <li><b>Anexar</b> os <button className="btn ghost sm" onClick={() => go("relatorios")}>Relatórios</button> em PDF e fechar a competência</li>
             </ol>
           </div>
         </div>

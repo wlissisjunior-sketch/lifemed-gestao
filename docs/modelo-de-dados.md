@@ -176,6 +176,26 @@ Histórico de alterações.
 | `alvo` | VARCHAR(200) | NVARCHAR(200) |  |
 | `detalhe` | VARCHAR(1000) NULL | NVARCHAR(1000) NULL |  |
 
+### PAD (plano de atenção domiciliar)
+| Tabela | Conteúdo |
+|---|---|
+| `escala_criterios`, `escala_opcoes`, `escala_faixas` | Escala de complexidade configurável: critérios, opções com pontos (uma opção pode exigir uma modalidade, ex.: ventilação mecânica → 24h c/ VM) e faixas de pontos → modalidade sugerida |
+| `pads` | Uma linha por versão do PAD: paciente, versão, versão anterior, situação (`rascunho`, `enviado`, `autorizado`, `encerrado`), operadora, nº da autorização, médico/CRM, início e fim, pontos, modalidade sugerida e escolhida (com motivo), objetivos, critérios de alta, reavaliação e datas de envio/autorização/encerramento |
+| `pad_escala` | Respostas da avaliação de complexidade |
+| `pad_itens` | Itens previstos: serviço, quantidade e frequência (`dia`, `semana`, `mes`, `periodo`) |
+| `pad_relatorios` | Tipos de relatório exigidos enquanto o PAD vale |
+
+Regras na aplicação (`src/lib/pad.ts`): previsão por frequência e período, orçamento pelo motor de cobrança, situação (em vigor, vence em N dias, vencido), previsto x realizado e diferença entre versões.
+
+### Anexos dos relatórios
+| Tabela | Conteúdo |
+|---|---|
+| `relatorios_anexos` | Um PDF por linha: competência, paciente, tipo, chave do arquivo no armazenamento, nome, tamanho, páginas, data de entrega, profissional, observação, quem enviou e quando, situação (`vigente`, `substituido`, `removido`) e motivo da remoção |
+
+O relatório só é **entregue** quando existe um anexo `vigente`. Substituir marca o anterior como `substituido`; remover marca como `removido` (o arquivo fica para o histórico).
+
+**Onde ficam os arquivos:** ainda não definido. Toda a leitura e gravação de arquivos passa por `src/lib/arquivos.ts` (`put`, `get`, `remove`). Hoje a implementação é provisória e guarda no navegador, só para a demonstração. No servidor, troque por chamadas à API (rotas abaixo) e grave o arquivo onde for decidido (disco da VPS, armazenamento de objetos etc.).
+
 ## Contrato da API para o backend
 
 A interface usada pelas telas está em `src/lib/datasource.ts`. Para ligar o banco, crie um adaptador com a mesma interface que chame uma API REST, por exemplo:
@@ -189,6 +209,12 @@ A interface usada pelas telas está em `src/lib/datasource.ts`. Para ligar o ban
 | GET / PUT | `/api/competencias/{id}/relatorios` | status dos relatórios |
 | POST | `/api/competencias/{id}/fechar` e `/reabrir` | só administrador |
 | GET | `/api/planserv?q=...` | busca |
+| GET / POST / PUT | `/api/pads[/{id}]` | listar, criar e editar PAD (só em rascunho) |
+| POST | `/api/pads/{id}/enviar`, `/autorizar`, `/encerrar`, `/nova-versao` | mudança de situação (autorizar e encerrar: administrador) |
+| GET / PUT | `/api/escala` | escala de complexidade (alterar: administrador) |
+| POST | `/api/arquivos` | recebe o PDF, valida (PDF, tamanho, páginas) e devolve a chave |
+| GET / DELETE | `/api/arquivos/{chave}` | baixar / apagar |
+| POST | `/api/competencias/{id}/relatorios/{paciente}/{tipo}/anexo` | registra o anexo e marca entregue (só depois do arquivo salvo) |
 | POST | `/api/planserv/importar` | só administrador |
 
 Papéis: **admin** (tudo), **operador** (lança, cadastra pacientes, marca relatórios), **leitor** (consulta). O backend deve validar o papel em cada rota e gravar em `auditoria`.

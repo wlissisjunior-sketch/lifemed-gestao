@@ -43,3 +43,11 @@ src/pages/              telas
 sql/                    esquema MySQL e SQL Server + dados de catálogo
 docs/                   modelo de dados e contrato da API
 ```
+
+
+## PAD e anexos de relatórios
+
+- **PAD:** menu *Planos de atenção (PAD)*. Montagem com escala de complexidade (editável em *Escala de complexidade*), itens com frequência, orçamento automático, envio, autorização, versões (prorrogação) com o que mudou, PDF com assinaturas, aplicação no checklist e previsto x realizado.
+- **Relatórios:** cada relatório exige um PDF. Só fica *entregue* depois do arquivo carregado e conferido (PDF válido, até 15 MB, com prévia). Fotos viram PDF. Substituir guarda o anterior no histórico; remover pede motivo. *Pasta de cobrança* junta os PDFs de cada paciente com uma capa (um PDF ou .zip com todos).
+- **Arquivos:** o destino ainda não está definido. Troque a implementação em `src/lib/arquivos.ts` quando houver servidor.
+- Testes das regras do PAD: `npm test`.

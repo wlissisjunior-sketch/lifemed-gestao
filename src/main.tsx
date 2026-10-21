@@ -11,12 +11,13 @@ import { Faturamento, Fechamento, Fisico } from "./pages/Resultados";
 import { Painel, Relatorios } from "./pages/Relatorios";
 import { Dietas, Medicamentos } from "./pages/Tabelas";
 import Ajustes from "./pages/Ajustes";
+import PadPage from "./pages/Pad";
 import { LOGO } from "./assets";
 import { DemoGate } from "./components/Demo";
 import "./styles.css";
 
 const { useState } = React;
-const PAGES: Record<Route, any> = { inicio: Inicio, checklist: Checklist, pacientes: Pacientes, valores: Valores, pacotes: Pacotes, fechamento: Fechamento,
+const PAGES: Record<Route, any> = { inicio: Inicio, pad: PadPage, checklist: Checklist, pacientes: Pacientes, valores: Valores, pacotes: Pacotes, fechamento: Fechamento,
   faturamento: Faturamento, fisico: Fisico, relatorios: Relatorios, painel: Painel, medicamentos: Medicamentos, dietas: Dietas, ajustes: Ajustes };
 
 function Toasts() {

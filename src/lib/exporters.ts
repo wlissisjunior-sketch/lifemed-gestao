@@ -82,7 +82,7 @@ export async function xlsxFechamento(comp: any, p: any, fe: any, downloads: any,
 export async function xlsxRelatorios(comp: any, m: any, tipos: any[], downloads: any, toast: any) {
   try { await needXlsx(); } catch { toast("err", "Não foi possível carregar o gerador de Excel. Verifique a conexão."); return; }
   const rows: any[][] = [["Paciente", ...tipos.map((t) => t.nome), "Entregues", "Pendentes"]];
-  for (const l of m.linhas) rows.push([l.p.nome, ...tipos.map((t) => (l.st[t.id] === "entregue" ? "Entregue" : "Pendente")), l.entregues, l.pendentes]);
+  for (const l of m.linhas) rows.push([l.p.nome, ...tipos.map((t) => (l.req && !l.req.has(t.id) ? "Não exigido" : l.st[t.id] === "entregue" ? (l.arq?.[t.id] ? "Entregue (PDF)" : "Entregue sem PDF") : "Pendente")), l.entregues, l.pendentes]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet(rows, [42, ...tipos.map(() => 13), 10, 10], []), "Relatórios");
   await save(downloads, `relatorios-${comp.id}.xlsx`, xbuf(wb), toast);
@@ -148,4 +148,64 @@ export async function parsePlanserv(file: File) {
   });
   if (!itens.length) throw new Error("Nenhum medicamento encontrado no arquivo.");
   return { versao, itens, avisos };
+}
+
+/** PDF do PAD: identificação, complexidade, itens com previsão e valores, relatórios, objetivos e assinaturas. */
+export async function pdfPad(pad: any, ctx: { paciente: any; servicos: any; tipos: any[]; escala: any; orc: any }, downloads: any, toast: any) {
+  try { await needPdf(); } catch { toast("err", "Não foi possível carregar o gerador de PDF. Verifique a conexão."); return; }
+  const J = (window as any).jspdf;
+  if (!J?.jsPDF) { toast("err", "O gerador de PDF não carregou. Verifique a conexão e recarregue."); return; }
+  const { paciente: p, servicos, tipos, escala, orc } = ctx;
+  const doc = new J.jsPDF({ unit: "mm", format: "a4" });
+  const W = 210, M = 14;
+  const brl = (v: number) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const nq = (v: number) => (v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  const FREQ: any = { dia: "por dia", semana: "por semana", mes: "por mês", periodo: "no período" };
+  const STATUS: any = { rascunho: "RASCUNHO", enviado: "ENVIADO PARA AUTORIZAÇÃO", autorizado: "AUTORIZADO", encerrado: "ENCERRADO" };
+  doc.addImage(LOGO, "PNG", M, 10, 26, 25.6);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(6, 90, 140);
+  doc.text("Plano de Atenção Domiciliar (PAD)", 46, 19);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 96, 110);
+  doc.text(`Versão ${pad.versao} · ${STATUS[pad.status] || ""}`, 46, 26);
+  doc.setDrawColor(147, 192, 31); doc.setLineWidth(1.2); doc.line(M, 39, W - M, 39);
+  const head = { fillColor: [6, 90, 140], textColor: 255, fontStyle: "bold" };
+  const sty = { font: "helvetica", fontSize: 9, cellPadding: 1.5, textColor: [20, 41, 58], lineColor: [200, 214, 224], lineWidth: 0.2 };
+  const at = (o: any) => (doc as any).autoTable({ styles: sty, headStyles: head, margin: { left: M, right: M }, ...o });
+  const last = () => (doc as any).lastAutoTable.finalY;
+  at({ startY: 43, theme: "plain", styles: { ...sty, lineWidth: 0 }, columnStyles: { 0: { fontStyle: "bold", cellWidth: 34 }, 2: { fontStyle: "bold", cellWidth: 30 } },
+    body: [
+      ["Paciente", p?.nome || "", "CNS", p?.cns || "—"],
+      ["Operadora", pad.operadora || "—", "Autorização", pad.autorizacao || "—"],
+      ["Período", `${dateBR(pad.ini)} a ${dateBR(pad.fim)}`, "Reavaliação", pad.reavaliacao ? dateBR(pad.reavaliacao) : "—"],
+      ["Médico", pad.medico || "—", "CRM", pad.crm || "—"],
+    ] });
+  const crit = (escala?.criterios || []).map((c: any) => { const o = c.opcoes[pad.escala?.[c.id]]; return [c.nome, o ? o.t : "—", o ? String(o.p) : "—"]; });
+  at({ startY: last() + 4, head: [["AVALIAÇÃO DE COMPLEXIDADE", "RESPOSTA", "PONTOS"]], body: crit,
+    foot: [["Modalidade: " + (servicos[pad.pacote]?.nome || "—") + (pad.sugerida && pad.sugerida !== pad.pacote ? ` (escala sugeria ${servicos[pad.sugerida]?.nome || ""})` : ""), "TOTAL", String(pad.pontos ?? "")]],
+    footStyles: { fillColor: [227, 243, 251], textColor: [6, 90, 140], fontStyle: "bold" }, columnStyles: { 2: { halign: "center", cellWidth: 18 } } });
+  if (pad.motivo) { doc.setFontSize(8.5); doc.setTextColor(80, 96, 110); doc.text(doc.splitTextToSize("Justificativa da modalidade: " + pad.motivo, W - 2 * M), M, last() + 5); }
+  const rows: any[] = [];
+  const pk = orc.porItem?.pkg;
+  if (pk) rows.push([servicos[pad.pacote]?.descricao || servicos[pad.pacote]?.nome, "1", "por dia", nq(pk.line.qtd), "Pacote", brl(pk.total)]);
+  pad.itens.forEach((it: any, i: number) => {
+    const s = servicos[it.sid]; const r = orc.porItem?.["i" + i];
+    const cob = !r ? "" : r.cobrada === 0 ? "Incluso" : r.inclusa === 0 ? "Cobrado" : "Parte incluso";
+    rows.push([(s?.nome || it.sid) + (it.obs ? `\n${it.obs}` : ""), nq(it.qtd), FREQ[it.freq], r ? nq(r.line.qtd) : "0", cob, brl(r?.total || 0)]);
+  });
+  at({ startY: last() + (pad.motivo ? 10 : 4), head: [["ITEM", "QTD", "FREQUÊNCIA", "PREVISTO", "COBERTURA", "VALOR"]], body: rows,
+    foot: [["", "", "", "", "TOTAL PREVISTO", brl(orc.cobrado)], ["", "", "", "", "INCLUSO NO PACOTE", brl(orc.incluso)]],
+    footStyles: { fillColor: [227, 243, 251], textColor: [6, 90, 140], fontStyle: "bold" },
+    columnStyles: { 1: { halign: "center", cellWidth: 12 }, 2: { cellWidth: 28 }, 3: { halign: "center", cellWidth: 21 }, 4: { cellWidth: 26 }, 5: { halign: "right", cellWidth: 28 } } });
+  const rel = (pad.relatorios || []).map((id: string) => tipos.find((t: any) => t.id === id)?.nome).filter(Boolean).join(", ");
+  at({ startY: last() + 4, theme: "plain", styles: { ...sty, lineWidth: 0 }, columnStyles: { 0: { fontStyle: "bold", cellWidth: 42 } },
+    body: [["Relatórios exigidos", rel || "—"], ["Objetivos terapêuticos", pad.objetivos || "—"], ["Critérios de alta", pad.alta || "—"]] });
+  let y = last() + 16;
+  if (y > 279) { doc.addPage(); y = 40; }
+  doc.setDrawColor(120, 135, 148); doc.setLineWidth(0.3);
+  doc.line(M, y, M + 80, y); doc.line(W - M - 80, y, W - M, y);
+  doc.setFontSize(8.5); doc.setTextColor(60, 75, 88);
+  doc.text(`Médico responsável${pad.crm ? " · " + pad.crm : ""}`, M, y + 4.5); doc.text("Paciente ou responsável", W - M - 80, y + 4.5);
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7.5); doc.setTextColor(110, 125, 138); doc.text(EMPRESA, W / 2, 288, { align: "center" }); doc.text(`${i}/${n}`, W - M, 288, { align: "right" }); }
+  await save(downloads, `pad-v${pad.versao}-${(p?.nome || "paciente").split(" ").slice(0, 2).join("-").toLowerCase()}.pdf`, doc.output("blob"), toast);
 }

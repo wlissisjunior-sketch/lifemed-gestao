@@ -1,6 +1,6 @@
 const { createContext, useContext, useEffect } = React;
 
-export type Route = "inicio" | "checklist" | "pacientes" | "valores" | "pacotes" | "fechamento" | "faturamento" | "fisico" | "relatorios" | "painel" | "medicamentos" | "dietas" | "ajustes";
+export type Route = "inicio" | "pad" | "checklist" | "pacientes" | "valores" | "pacotes" | "fechamento" | "faturamento" | "fisico" | "relatorios" | "painel" | "medicamentos" | "dietas" | "ajustes";
 export const NavCtx = createContext(null as any as { route: Route; go: (r: Route, arg?: any) => void; arg: any });
 export const useNav = () => useContext(NavCtx);
 

@@ -12,6 +12,7 @@
 // O mapeamento de cada "tabela" para o esquema SQL está em docs/modelo-de-dados.md.
 // ============================================================================
 import seed from "../demo-seed.json";
+import { arquivos } from "./arquivos";
 
 const KEY = "lifemed.demo.v1";
 type Store = Map<string, any>;
@@ -23,7 +24,18 @@ function seedStore(): Store {
   return m;
 }
 function load(): Store {
-  try { const raw = localStorage.getItem(KEY); if (raw) return new Map(Object.entries(JSON.parse(raw))); } catch { /* sem armazenamento */ }
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) {
+      const m: Store = new Map(Object.entries(JSON.parse(raw)));
+      // versões novas do sistema: coleções que a cópia salva ainda não tem entram com os dados de exemplo
+      for (const [col, docs] of Object.entries<any>(seed as any)) {
+        if ([...m.keys()].some((k) => k.startsWith(col + "/"))) continue;
+        for (const [id, d] of Object.entries<any>(docs)) m.set(`${col}/${id}`, d);
+      }
+      return m;
+    }
+  } catch { /* sem armazenamento */ }
   return seedStore();
 }
 let store: Store = load();
@@ -33,7 +45,7 @@ function persist() {
   saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(store))); } catch { /* cheio ou bloqueado */ } }, 150);
   setTimeout(() => listeners.forEach((l) => l()), 0);
 }
-export function resetDemo() { store = seedStore(); try { localStorage.removeItem(KEY); localStorage.removeItem("lm.comp"); } catch { /* ok */ } persist(); }
+export function resetDemo() { store = seedStore(); try { localStorage.removeItem(KEY); localStorage.removeItem("lm.comp"); } catch { /* ok */ } arquivos.clear().catch(() => undefined); persist(); }
 // outras abas do mesmo navegador
 if (typeof window !== "undefined") window.addEventListener("storage", (e) => { if (e.key === KEY) { store = load(); listeners.forEach((l) => l()); } });
 

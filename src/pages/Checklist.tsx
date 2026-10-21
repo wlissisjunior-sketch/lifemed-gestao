@@ -5,6 +5,8 @@ import { days, LineResult } from "../lib/engine";
 import { dateBR, horasBR, isHora, money, norm, parseQtd, qty } from "../lib/format";
 import { Banner, Confirm, Empty, Field, Modal, PageHead, useNav } from "../components/ui";
 import Timeline from "../components/Timeline";
+import { Pad, padsDoPeriodo, linhasPrevistas, situacao } from "../lib/pad";
+import { todayISO, mesAno } from "../lib/format";
 
 const { useMemo, useState, useEffect } = React;
 
@@ -12,7 +14,7 @@ interface FormState { sid: string; qtd: string; ini: string; fim: string; cobrar
 const VAZIO: FormState = { sid: "", qtd: "", ini: "", fim: "", cobrar: false, obs: "" };
 
 function LancForm({ pid, edit, onClose, inclusos }: { pid: string; edit: Lanc | null; onClose: () => void; inclusos: any[] }) {
-  const { db, comp, svcList, servicos, write, log, meId, pacientes } = useStore();
+  const { db, comp, svcList, servicos, write, log, meId, pacientes, pads } = useStore();
   const [f, setF] = useState(edit ? { sid: edit.sid, qtd: String(edit.qtd).replace(".", ","), ini: edit.ini || "", fim: edit.fim || "", cobrar: edit.modo === "cobrar", obs: edit.obs || "" } : VAZIO);
   const [erro, setErro] = useState("");
   const [busy, setBusy] = useState(false);
@@ -22,6 +24,8 @@ function LancForm({ pid, edit, onClose, inclusos }: { pid: string; edit: Lanc | 
   const q = parseQtd(f.qtd);
   const periodo = f.ini && f.fim && f.fim >= f.ini ? days(f.ini, f.fim) : null;
   const inc = inclusos.find((i) => i.svc.id === f.sid);
+  const padsPac = comp ? padsDoPeriodo(pads, pid, comp.ini, comp.fim) : [];
+  const foraPad = padsPac.length > 0 && !!f.ini && !!f.fim && f.fim >= f.ini && !padsPac.some((x) => x.ini <= f.ini && f.fim <= x.fim);
   const set = (k: keyof FormState) => (e: any) => setF({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
 
   const salvar = async (e: any) => {
@@ -69,6 +73,7 @@ function LancForm({ pid, edit, onClose, inclusos }: { pid: string; edit: Lanc | 
             : svc?.pacote && periodo ? `Em branco = ${periodo} diárias (dias do período).` : "Aceita decimais, por exemplo 2,5."}>
           <input id="lf-qtd" inputMode="decimal" autoComplete="off" value={f.qtd} onChange={set("qtd")} placeholder={svc && isHora(svc.nome) ? "7:37" : ""} />
         </Field>
+        {foraPad && <Banner kind="warn">Estas datas ficam fora do período autorizado pelo PAD ({padsPac.map((x) => `v${x.versao}: ${dateBR(x.ini)} a ${dateBR(x.fim)}`).join("; ")}). Confira com a operadora antes de cobrar.</Banner>}
         {inc && !f.cobrar && <Banner kind="info">{inc.svc.nome} está incluso no pacote deste paciente ({inc.pacotes.join(", ")}). Só será cobrado o que cair fora dos dias do pacote{inc.limite === "dias" ? ", até 1 por dia de pacote" : ""}.</Banner>}
         <label className="check"><input type="checkbox" checked={f.cobrar} onChange={set("cobrar")} />
           <span><b>Cobrar mesmo dentro do pacote</b><br /><span className="hint">Use só em exceções. Normalmente deixe desmarcado e informe as datas: o sistema decide o que o pacote cobre.</span></span></label>
@@ -86,8 +91,8 @@ function LinhaQtd({ r }: { r: LineResult }) {
 }
 
 export default function Checklist() {
-  const { comp, pacList, pacientes, svcList, servicos, rules, lancs, editavel, db, write, log, names } = useStore();
-  const { arg } = useNav();
+  const { comp, pacList, pacientes, svcList, servicos, rules, lancs, editavel, db, write, log, names, pads, can, meId } = useStore();
+  const { arg, go } = useNav();
   const res = useResults();
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("todos");
@@ -106,7 +111,21 @@ export default function Checklist() {
   const ordered = [...rs].sort((a, b) => Number(b.svc.pacote) - Number(a.svc.pacote) || (a.line.ini || "").localeCompare(b.line.ini || "") || a.svc.ordem - b.svc.ordem);
   const nm = names(rs.map((r) => lancById[r.line.id]?.por || ""));
 
+  const padsMes: Pad[] = sel && comp ? padsDoPeriodo(pads, sel, comp.ini, comp.fim) : [];
   if (!comp) return <Empty>Crie uma competência para começar.</Empty>;
+  const aplicarPad = async (pad: Pad) => {
+    // cria só o que ainda não foi lançado para o paciente no mês (não duplica lançamentos feitos à mão)
+    const jaTem = new Set(lancs.filter((l) => l.pac === sel).map((l) => l.sid));
+    const todas = linhasPrevistas(pad, comp.ini, comp.fim, servicos);
+    const linhas = todas.filter((l) => !jaTem.has(l.sid));
+    const agora = new Date().toISOString();
+    const pulados = todas.length - linhas.length;
+    const ok = await write(async () => {
+      for (const l of linhas) await db.doc(`lancamentos/${uid("l")}`).set({ comp: comp.id, pac: sel, sid: l.sid, qtd: l.qtd, ini: l.ini, fim: l.fim, modo: "auto",
+        vu: servicos[l.sid].valor, obs: `pelo PAD v${pad.versao}`, origem: pad.id, por: meId || "", em: agora });
+    }, linhas.length ? `${linhas.length} lançamento(s) criados pelo PAD v${pad.versao}${pulados ? `; ${pulados} já estavam lançados e foram mantidos` : ""}. Confira as quantidades.` : `Tudo o que o PAD v${pad.versao} prevê já estava lançado.`);
+    if (ok) log("aplicar PAD no checklist", pacientes[sel]?.nome || sel, `v${pad.versao}: ${linhas.length} criados, ${pulados} mantidos`);
+  };
   const excluir = async () => {
     const l = del!; setDel(null);
     if (await write(() => db.doc(`lancamentos/${l.id}`).delete(), "Lançamento excluído.")) log("excluir lançamento", pacientes[l.pac]?.nome || l.pac, `${servicos[l.sid]?.nome}: ${qty(l.qtd)}`);
@@ -150,6 +169,25 @@ export default function Checklist() {
                     <p className="hint">{p.municipio || "Município não informado"} · admissão {dateBR(p.admissao)}{p.cns ? ` · CNS ${p.cns}` : ""}</p>
                   </div>
                   {editavel && <button className="btn" onClick={() => setForm({ edit: null })}>+ Lançar serviço</button>}
+                </div>
+                <div className="padbar">
+                  {padsMes.length === 0 ? (
+                    <div className="row between"><span className="small"><b>Sem PAD autorizado</b> para {mesAno(comp.id)}.</span>
+                      {can("operador") && <button className="btn sm sec" onClick={() => go("pad", { novo: sel })}>Montar PAD</button>}</div>
+                  ) : padsMes.map((pd) => {
+                    const sidsLanc = new Set(lancs.filter((l) => l.pac === sel).map((l) => l.sid));
+                    const aplicado = lancs.some((l) => l.pac === sel && l.origem === pd.id) || linhasPrevistas(pd, comp.ini, comp.fim, servicos).every((l) => sidsLanc.has(l.sid));
+                    const s2 = situacao(pd, todayISO());
+                    return (
+                      <div className="row between" key={pd.id}>
+                        <span className="small"><b>PAD v{pd.versao}</b> · {servicos[pd.pacote]?.nome} · {dateBR(pd.ini)} a {dateBR(pd.fim)} <span className={`pill ${s2.kind}`}>{s2.label}</span></span>
+                        <span className="row" style={{ gap: 6 }}>
+                          {aplicado ? <span className="pill ok">Aplicado neste mês</span> : editavel && <button className="btn sm" onClick={() => aplicarPad(pd)}>Aplicar o PAD neste mês</button>}
+                          <button className="btn sm sec" onClick={() => go("pad", { id: pd.id })}>Ver PAD</button>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="kpis">
                   <div className="kpi money"><span>Cobrado no mês</span><b>{money(cob)}</b></div>

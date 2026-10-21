@@ -153,6 +153,108 @@ CREATE TABLE auditoria (
   CONSTRAINT pk_auditoria PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Histórico de alterações.';
 
+-- ===================== PAD (plano de atenção domiciliar) =====================
+-- Escala de complexidade configurável (critérios, opções com pontos e faixas → modalidade).
+CREATE TABLE escala_criterios (
+  id VARCHAR(20) NOT NULL,
+  nome VARCHAR(120) NOT NULL,
+  ordem INT NOT NULL DEFAULT 0,
+  CONSTRAINT pk_escala_criterios PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Critérios da escala de complexidade.';
+
+CREATE TABLE escala_opcoes (
+  criterio_id VARCHAR(20) NOT NULL,
+  ordem INT NOT NULL,
+  texto VARCHAR(160) NOT NULL,
+  pontos INT NOT NULL DEFAULT 0,
+  exige_servico_id VARCHAR(10) NULL,
+  CONSTRAINT pk_escala_opcoes PRIMARY KEY (criterio_id, ordem)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Opções de cada critério; exige_servico_id força a modalidade (ex.: ventilação mecânica).';
+
+CREATE TABLE escala_faixas (
+  pontos_min INT NOT NULL,
+  servico_id VARCHAR(10) NOT NULL,
+  CONSTRAINT pk_escala_faixas PRIMARY KEY (pontos_min)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='A partir de N pontos, a modalidade sugerida.';
+
+CREATE TABLE pads (
+  id VARCHAR(40) NOT NULL,
+  paciente_id VARCHAR(40) NOT NULL,
+  versao INT NOT NULL,
+  anterior_id VARCHAR(40) NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'rascunho',
+  operadora VARCHAR(80) NULL,
+  autorizacao VARCHAR(60) NULL,
+  medico VARCHAR(120) NULL,
+  crm VARCHAR(30) NULL,
+  inicio DATE NOT NULL,
+  fim DATE NOT NULL,
+  pontos INT NOT NULL DEFAULT 0,
+  modalidade_sugerida_id VARCHAR(10) NULL,
+  pacote_id VARCHAR(10) NULL,
+  motivo_modalidade VARCHAR(500) NULL,
+  objetivos TEXT NULL,
+  criterios_alta TEXT NULL,
+  reavaliacao DATE NULL,
+  criado_por INT NULL,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  enviado_em DATETIME NULL,
+  autorizado_em DATETIME NULL,
+  encerrado_em DATETIME NULL,
+  motivo_encerramento VARCHAR(300) NULL,
+  CONSTRAINT pk_pads PRIMARY KEY (id),
+  CONSTRAINT uq_pads_paciente_versao UNIQUE (paciente_id, versao),
+  CONSTRAINT ck_pads_status CHECK (status IN ('rascunho','enviado','autorizado','encerrado')),
+  CONSTRAINT ck_pads_periodo CHECK (fim >= inicio)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Plano de atenção domiciliar, uma linha por versão.';
+
+CREATE TABLE pad_escala (
+  pad_id VARCHAR(40) NOT NULL,
+  criterio_id VARCHAR(20) NOT NULL,
+  opcao_ordem INT NOT NULL,
+  CONSTRAINT pk_pad_escala PRIMARY KEY (pad_id, criterio_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Respostas da avaliação de complexidade.';
+
+CREATE TABLE pad_itens (
+  pad_id VARCHAR(40) NOT NULL,
+  servico_id VARCHAR(10) NOT NULL,
+  quantidade DECIMAL(12,4) NOT NULL,
+  frequencia VARCHAR(10) NOT NULL,
+  observacao VARCHAR(300) NULL,
+  CONSTRAINT pk_pad_itens PRIMARY KEY (pad_id, servico_id),
+  CONSTRAINT ck_pad_itens_freq CHECK (frequencia IN ('dia','semana','mes','periodo'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Equipe, equipamentos, medicamentos e insumos previstos no PAD.';
+
+CREATE TABLE pad_relatorios (
+  pad_id VARCHAR(40) NOT NULL,
+  tipo_id VARCHAR(20) NOT NULL,
+  CONSTRAINT pk_pad_relatorios PRIMARY KEY (pad_id, tipo_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Relatórios exigidos enquanto o PAD vale.';
+
+-- ===================== anexos dos relatórios =====================
+-- O arquivo em si fica no armazenamento de arquivos (a definir); aqui ficam só os dados e a chave.
+CREATE TABLE relatorios_anexos (
+  id BIGINT AUTO_INCREMENT NOT NULL,
+  competencia_id CHAR(7) NOT NULL,
+  paciente_id VARCHAR(40) NOT NULL,
+  tipo_id VARCHAR(20) NOT NULL,
+  arquivo_chave VARCHAR(200) NOT NULL,
+  arquivo_nome VARCHAR(255) NOT NULL,
+  tamanho_bytes INT NOT NULL,
+  paginas INT NOT NULL,
+  data_entrega DATE NULL,
+  profissional VARCHAR(120) NULL,
+  observacao VARCHAR(300) NULL,
+  enviado_por INT NULL,
+  enviado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  situacao VARCHAR(12) NOT NULL DEFAULT 'vigente',
+  substituido_em DATETIME NULL,
+  removido_motivo VARCHAR(300) NULL,
+  CONSTRAINT pk_relatorios_anexos PRIMARY KEY (id),
+  CONSTRAINT ck_relatorios_anexos_situacao CHECK (situacao IN ('vigente','substituido','removido'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='PDFs dos relatórios; o vigente define o status entregue. Versões antigas ficam como histórico.';
+CREATE INDEX ix_relatorios_anexos_mes ON relatorios_anexos (competencia_id, paciente_id, tipo_id, situacao);
+
 ALTER TABLE pacote_regras ADD CONSTRAINT fk_pacote_regras_pacote_id FOREIGN KEY (pacote_id) REFERENCES servicos(id);
 ALTER TABLE pacote_regras ADD CONSTRAINT fk_pacote_regras_servico_id FOREIGN KEY (servico_id) REFERENCES servicos(id);
 ALTER TABLE competencias ADD CONSTRAINT fk_competencias_fechada_por FOREIGN KEY (fechada_por) REFERENCES usuarios(id);
@@ -181,3 +283,20 @@ SELECT l.id, l.competencia_id, p.nome AS paciente, p.municipio, s.categoria, s.n
 FROM lancamentos l
 JOIN pacientes p ON p.id = l.paciente_id
 JOIN servicos s ON s.id = l.servico_id;
+
+ALTER TABLE escala_opcoes ADD CONSTRAINT fk_escala_opcoes_criterio FOREIGN KEY (criterio_id) REFERENCES escala_criterios(id);
+ALTER TABLE escala_opcoes ADD CONSTRAINT fk_escala_opcoes_servico FOREIGN KEY (exige_servico_id) REFERENCES servicos(id);
+ALTER TABLE escala_faixas ADD CONSTRAINT fk_escala_faixas_servico FOREIGN KEY (servico_id) REFERENCES servicos(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_paciente FOREIGN KEY (paciente_id) REFERENCES pacientes(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_anterior FOREIGN KEY (anterior_id) REFERENCES pads(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_pacote FOREIGN KEY (pacote_id) REFERENCES servicos(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_criado_por FOREIGN KEY (criado_por) REFERENCES usuarios(id);
+ALTER TABLE pad_escala ADD CONSTRAINT fk_pad_escala_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_itens ADD CONSTRAINT fk_pad_itens_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_itens ADD CONSTRAINT fk_pad_itens_servico FOREIGN KEY (servico_id) REFERENCES servicos(id);
+ALTER TABLE pad_relatorios ADD CONSTRAINT fk_pad_relatorios_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_relatorios ADD CONSTRAINT fk_pad_relatorios_tipo FOREIGN KEY (tipo_id) REFERENCES tipos_relatorio(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_comp FOREIGN KEY (competencia_id) REFERENCES competencias(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_pac FOREIGN KEY (paciente_id) REFERENCES pacientes(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_tipo FOREIGN KEY (tipo_id) REFERENCES tipos_relatorio(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_por FOREIGN KEY (enviado_por) REFERENCES usuarios(id);

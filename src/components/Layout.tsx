@@ -7,7 +7,7 @@ import { trocarPerfil } from "./Demo";
 const { useState } = React;
 
 export const GROUPS: { t: string; items: [Route, string][] }[] = [
-  { t: "Lançar", items: [["checklist", "Checklist de serviços"], ["relatorios", "Relatórios entregues"]] },
+  { t: "Lançar", items: [["pad", "Planos de atenção (PAD)"], ["checklist", "Checklist de serviços"], ["relatorios", "Relatórios entregues"]] },
   { t: "Resultados", items: [["faturamento", "Faturamento por paciente"], ["fisico", "Físico-financeiro"], ["fechamento", "Fechamento do paciente"], ["painel", "Painel de relatórios"]] },
   { t: "Cadastros", items: [["pacientes", "Pacientes"], ["valores", "Serviços e valores"], ["pacotes", "Pacotes e inclusos"], ["medicamentos", "Medicamentos PLANSERV"], ["dietas", "Dietas e suplementos"]] },
   { t: "Sistema", items: [["ajustes", "Competências e ajustes"]] },

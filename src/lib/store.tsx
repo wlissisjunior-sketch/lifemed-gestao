@@ -1,6 +1,7 @@
 import { Svc, Rules } from "./engine";
 import { Paciente, Lanc, Tipo } from "./views";
 import { compRange, todayISO } from "./format";
+import { Pad, Escala, ESCALA_PADRAO } from "./pad";
 
 const { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } = React;
 
@@ -17,6 +18,7 @@ interface Ctx {
   comps: Comp[]; comp: Comp | null; setComp: (id: string) => void;
   lancs: Lanc[]; rels: Record<string, any>;
   config: Record<string, any>; tipos: Tipo[];
+  pads: Pad[]; escala: Escala;
   can: (r: Role) => boolean; editavel: boolean;
   write: (fn: () => Promise<any>, ok?: string) => Promise<boolean>;
   log: (acao: string, alvo: string, det?: any) => void;
@@ -55,6 +57,7 @@ export function StoreProvider({ children, boot }: { children: any; boot: any }) 
   const [compId, setCompId] = useState(ls.get("lm.comp") || "");
   const [lancMap, setLancMap] = useState({} as Record<string, Lanc>);
   const [rels, setRels] = useState({} as Record<string, any>);
+  const [padMap, setPadMap] = useState({} as Record<string, Pad>);
   const [toasts, setToasts] = useState([] as Toast[]);
   const [nameMap, setNameMap] = useState({} as Record<string, string>);
   const pendingNames = useRef(new Set<string>());
@@ -84,7 +87,7 @@ export function StoreProvider({ children, boot }: { children: any; boot: any }) 
   useEffect(() => {
     const db = caps.db; if (!db) return;
     const loaded = new Set<string>();
-    const done = (k: string) => { loaded.add(k); if (loaded.size >= 6) setStatus("ready"); };
+    const done = (k: string) => { loaded.add(k); if (loaded.size >= 7) setStatus("ready"); };
     const onErr = (e: any) => { if (e?.code !== "revoked") toast("err", "A conexão com o banco caiu. Recarregue a página."); };
     const subs = [
       db.collection("servicos").onSnapshot((s: any) => { setServicos(docsToMap(s)); done("s"); }, onErr),
@@ -93,6 +96,7 @@ export function StoreProvider({ children, boot }: { children: any; boot: any }) 
       db.collection("competencias").onSnapshot((s: any) => { setCompDocs(docsToMap(s)); done("c"); }, onErr),
       db.collection("fechamentos").onSnapshot((s: any) => { setFechDocs(docsToMap(s)); done("f"); }, onErr),
       db.collection("config").onSnapshot((s: any) => { setConfig(docsToMap(s)); done("g"); }, onErr),
+      db.collection("pads").onSnapshot((s: any) => { setPadMap(docsToMap(s)); done("d"); }, onErr),
     ];
     return () => subs.forEach((u: any) => u());
   }, [caps.db]);
@@ -117,6 +121,8 @@ export function StoreProvider({ children, boot }: { children: any; boot: any }) 
   const pacList = useMemo(() => (Object.values(pacientes) as Paciente[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")), [pacientes]);
   const lancs = useMemo(() => Object.values(lancMap) as Lanc[], [lancMap]);
   const tipos: Tipo[] = config.relatorios?.tipos || [];
+  const pads = useMemo(() => Object.values(padMap) as Pad[], [padMap]);
+  const escala: Escala = config.escala?.criterios ? config.escala : ESCALA_PADRAO;
 
   const can = (r: Role) => RANK[role] >= RANK[r];
   const editavel = can("operador") && comp?.status === "aberta";
@@ -147,7 +153,7 @@ export function StoreProvider({ children, boot }: { children: any; boot: any }) 
 
   const value: Ctx = {
     status, role, meId, isOwner, db: caps.db, assets: caps.assets, downloads: caps.downloads, user: caps.user,
-    servicos, svcList, rules, pacientes, pacList, comps, comp, setComp, lancs, rels, config, tipos,
+    servicos, svcList, rules, pacientes, pacList, comps, comp, setComp, lancs, rels, config, tipos, pads, escala,
     can, editavel, write, log, toast, toasts, names,
   };
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;

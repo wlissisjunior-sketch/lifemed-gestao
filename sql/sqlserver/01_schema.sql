@@ -153,6 +153,108 @@ CREATE TABLE auditoria (
 
 GO
 
+-- ===================== PAD (plano de atenção domiciliar) =====================
+-- Escala de complexidade configurável (critérios, opções com pontos e faixas → modalidade).
+CREATE TABLE escala_criterios (
+  id NVARCHAR(20) NOT NULL,
+  nome NVARCHAR(120) NOT NULL,
+  ordem INT NOT NULL DEFAULT 0,
+  CONSTRAINT pk_escala_criterios PRIMARY KEY (id)
+);
+
+CREATE TABLE escala_opcoes (
+  criterio_id NVARCHAR(20) NOT NULL,
+  ordem INT NOT NULL,
+  texto NVARCHAR(160) NOT NULL,
+  pontos INT NOT NULL DEFAULT 0,
+  exige_servico_id NVARCHAR(10) NULL,
+  CONSTRAINT pk_escala_opcoes PRIMARY KEY (criterio_id, ordem)
+);
+
+CREATE TABLE escala_faixas (
+  pontos_min INT NOT NULL,
+  servico_id NVARCHAR(10) NOT NULL,
+  CONSTRAINT pk_escala_faixas PRIMARY KEY (pontos_min)
+);
+
+CREATE TABLE pads (
+  id NVARCHAR(40) NOT NULL,
+  paciente_id NVARCHAR(40) NOT NULL,
+  versao INT NOT NULL,
+  anterior_id NVARCHAR(40) NULL,
+  status NVARCHAR(12) NOT NULL DEFAULT 'rascunho',
+  operadora NVARCHAR(80) NULL,
+  autorizacao NVARCHAR(60) NULL,
+  medico NVARCHAR(120) NULL,
+  crm NVARCHAR(30) NULL,
+  inicio DATE NOT NULL,
+  fim DATE NOT NULL,
+  pontos INT NOT NULL DEFAULT 0,
+  modalidade_sugerida_id NVARCHAR(10) NULL,
+  pacote_id NVARCHAR(10) NULL,
+  motivo_modalidade NVARCHAR(500) NULL,
+  objetivos NVARCHAR(MAX) NULL,
+  criterios_alta NVARCHAR(MAX) NULL,
+  reavaliacao DATE NULL,
+  criado_por INT NULL,
+  criado_em DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+  enviado_em DATETIME2 NULL,
+  autorizado_em DATETIME2 NULL,
+  encerrado_em DATETIME2 NULL,
+  motivo_encerramento NVARCHAR(300) NULL,
+  CONSTRAINT pk_pads PRIMARY KEY (id),
+  CONSTRAINT uq_pads_paciente_versao UNIQUE (paciente_id, versao),
+  CONSTRAINT ck_pads_status CHECK (status IN ('rascunho','enviado','autorizado','encerrado')),
+  CONSTRAINT ck_pads_periodo CHECK (fim >= inicio)
+);
+
+CREATE TABLE pad_escala (
+  pad_id NVARCHAR(40) NOT NULL,
+  criterio_id NVARCHAR(20) NOT NULL,
+  opcao_ordem INT NOT NULL,
+  CONSTRAINT pk_pad_escala PRIMARY KEY (pad_id, criterio_id)
+);
+
+CREATE TABLE pad_itens (
+  pad_id NVARCHAR(40) NOT NULL,
+  servico_id NVARCHAR(10) NOT NULL,
+  quantidade DECIMAL(12,4) NOT NULL,
+  frequencia NVARCHAR(10) NOT NULL,
+  observacao NVARCHAR(300) NULL,
+  CONSTRAINT pk_pad_itens PRIMARY KEY (pad_id, servico_id),
+  CONSTRAINT ck_pad_itens_freq CHECK (frequencia IN ('dia','semana','mes','periodo'))
+);
+
+CREATE TABLE pad_relatorios (
+  pad_id NVARCHAR(40) NOT NULL,
+  tipo_id NVARCHAR(20) NOT NULL,
+  CONSTRAINT pk_pad_relatorios PRIMARY KEY (pad_id, tipo_id)
+);
+
+-- ===================== anexos dos relatórios =====================
+-- O arquivo em si fica no armazenamento de arquivos (a definir); aqui ficam só os dados e a chave.
+CREATE TABLE relatorios_anexos (
+  id BIGINT IDENTITY(1,1) NOT NULL,
+  competencia_id CHAR(7) NOT NULL,
+  paciente_id NVARCHAR(40) NOT NULL,
+  tipo_id NVARCHAR(20) NOT NULL,
+  arquivo_chave NVARCHAR(200) NOT NULL,
+  arquivo_nome NVARCHAR(255) NOT NULL,
+  tamanho_bytes INT NOT NULL,
+  paginas INT NOT NULL,
+  data_entrega DATE NULL,
+  profissional NVARCHAR(120) NULL,
+  observacao NVARCHAR(300) NULL,
+  enviado_por INT NULL,
+  enviado_em DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+  situacao NVARCHAR(12) NOT NULL DEFAULT 'vigente',
+  substituido_em DATETIME2 NULL,
+  removido_motivo NVARCHAR(300) NULL,
+  CONSTRAINT pk_relatorios_anexos PRIMARY KEY (id),
+  CONSTRAINT ck_relatorios_anexos_situacao CHECK (situacao IN ('vigente','substituido','removido'))
+);
+CREATE INDEX ix_relatorios_anexos_mes ON relatorios_anexos (competencia_id, paciente_id, tipo_id, situacao);
+
 ALTER TABLE pacote_regras ADD CONSTRAINT fk_pacote_regras_pacote_id FOREIGN KEY (pacote_id) REFERENCES servicos(id);
 ALTER TABLE pacote_regras ADD CONSTRAINT fk_pacote_regras_servico_id FOREIGN KEY (servico_id) REFERENCES servicos(id);
 ALTER TABLE competencias ADD CONSTRAINT fk_competencias_fechada_por FOREIGN KEY (fechada_por) REFERENCES usuarios(id);
@@ -183,3 +285,20 @@ FROM lancamentos l
 JOIN pacientes p ON p.id = l.paciente_id
 JOIN servicos s ON s.id = l.servico_id;
 GO
+
+ALTER TABLE escala_opcoes ADD CONSTRAINT fk_escala_opcoes_criterio FOREIGN KEY (criterio_id) REFERENCES escala_criterios(id);
+ALTER TABLE escala_opcoes ADD CONSTRAINT fk_escala_opcoes_servico FOREIGN KEY (exige_servico_id) REFERENCES servicos(id);
+ALTER TABLE escala_faixas ADD CONSTRAINT fk_escala_faixas_servico FOREIGN KEY (servico_id) REFERENCES servicos(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_paciente FOREIGN KEY (paciente_id) REFERENCES pacientes(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_anterior FOREIGN KEY (anterior_id) REFERENCES pads(id) ON DELETE NO ACTION;
+ALTER TABLE pads ADD CONSTRAINT fk_pads_pacote FOREIGN KEY (pacote_id) REFERENCES servicos(id);
+ALTER TABLE pads ADD CONSTRAINT fk_pads_criado_por FOREIGN KEY (criado_por) REFERENCES usuarios(id);
+ALTER TABLE pad_escala ADD CONSTRAINT fk_pad_escala_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_itens ADD CONSTRAINT fk_pad_itens_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_itens ADD CONSTRAINT fk_pad_itens_servico FOREIGN KEY (servico_id) REFERENCES servicos(id);
+ALTER TABLE pad_relatorios ADD CONSTRAINT fk_pad_relatorios_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_relatorios ADD CONSTRAINT fk_pad_relatorios_tipo FOREIGN KEY (tipo_id) REFERENCES tipos_relatorio(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_comp FOREIGN KEY (competencia_id) REFERENCES competencias(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_pac FOREIGN KEY (paciente_id) REFERENCES pacientes(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_tipo FOREIGN KEY (tipo_id) REFERENCES tipos_relatorio(id);
+ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_por FOREIGN KEY (enviado_por) REFERENCES usuarios(id);
