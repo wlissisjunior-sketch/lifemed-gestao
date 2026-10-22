@@ -160,7 +160,9 @@ export async function pdfPad(pad: any, ctx: { paciente: any; servicos: any; tipo
   const W = 210, M = 14;
   const brl = (v: number) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const nq = (v: number) => (v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
-  const FREQ: any = { dia: "por dia", semana: "por semana", mes: "por mês", periodo: "no período" };
+  const FREQ: any = { dia: "por dia", alternados: "dias alternados", "48h": "a cada 48 h", semana: "por semana", mes: "por mês", periodo: "no período" };
+  const usaEsc = pad.usarEscala ?? Object.keys(pad.escala || {}).length > 0;
+  const curta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
   const STATUS: any = { rascunho: "RASCUNHO", enviado: "ENVIADO PARA AUTORIZAÇÃO", autorizado: "AUTORIZADO", encerrado: "ENCERRADO" };
   doc.addImage(LOGO, "PNG", M, 10, 26, 25.6);
   doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.setTextColor(6, 90, 140);
@@ -175,24 +177,38 @@ export async function pdfPad(pad: any, ctx: { paciente: any; servicos: any; tipo
   at({ startY: 43, theme: "plain", styles: { ...sty, lineWidth: 0 }, columnStyles: { 0: { fontStyle: "bold", cellWidth: 34 }, 2: { fontStyle: "bold", cellWidth: 30 } },
     body: [
       ["Paciente", p?.nome || "", "CNS", p?.cns || "—"],
+      ["PAD SESAB", pad.codSesab || "—", "Versão", String(pad.versao)],
       ["Operadora", pad.operadora || "—", "Autorização", pad.autorizacao || "—"],
       ["Período", `${dateBR(pad.ini)} a ${dateBR(pad.fim)}`, "Reavaliação", pad.reavaliacao ? dateBR(pad.reavaliacao) : "—"],
       ["Médico", pad.medico || "—", "CRM", pad.crm || "—"],
     ] });
-  const crit = (escala?.criterios || []).map((c: any) => { const o = c.opcoes[pad.escala?.[c.id]]; return [c.nome, o ? o.t : "—", o ? String(o.p) : "—"]; });
-  at({ startY: last() + 4, head: [["AVALIAÇÃO DE COMPLEXIDADE", "RESPOSTA", "PONTOS"]], body: crit,
-    foot: [["Modalidade: " + (servicos[pad.pacote]?.nome || "—") + (pad.sugerida && pad.sugerida !== pad.pacote ? ` (escala sugeria ${servicos[pad.sugerida]?.nome || ""})` : ""), "TOTAL", String(pad.pontos ?? "")]],
-    footStyles: { fillColor: [227, 243, 251], textColor: [6, 90, 140], fontStyle: "bold" }, columnStyles: { 2: { halign: "center", cellWidth: 18 } } });
-  if (pad.motivo) { doc.setFontSize(8.5); doc.setTextColor(80, 96, 110); doc.text(doc.splitTextToSize("Justificativa da modalidade: " + pad.motivo, W - 2 * M), M, last() + 5); }
+  const programa = `Programa: ${servicos[pad.pacote]?.nome || "—"} · visitas ${pad.pacoteFreq === "alternados" ? "em dias alternados" : "todos os dias"} · ${orc.diarias ?? ""} diária(s)`;
+  if (usaEsc) {
+    const crit = (escala?.criterios || []).map((c: any) => { const o = c.opcoes[pad.escala?.[c.id]]; return [c.nome, o ? o.t : "—", o ? String(o.p) : "—"]; });
+    at({ startY: last() + 4, head: [["AVALIAÇÃO DE COMPLEXIDADE", "RESPOSTA", "PONTOS"]], body: crit,
+      foot: [[programa + (pad.sugerida && pad.sugerida !== pad.pacote ? ` (escala sugeria ${servicos[pad.sugerida]?.nome || ""})` : ""), "TOTAL", String(pad.pontos ?? "")]],
+      footStyles: { fillColor: [227, 243, 251], textColor: [6, 90, 140], fontStyle: "bold" }, columnStyles: { 2: { halign: "center", cellWidth: 18 } } });
+  } else {
+    at({ startY: last() + 4, theme: "plain", styles: { ...sty, lineWidth: 0, fontStyle: "bold", textColor: [6, 90, 140] }, body: [[programa]] });
+  }
+  if (usaEsc && pad.motivo) { doc.setFontSize(8.5); doc.setTextColor(80, 96, 110); doc.text(doc.splitTextToSize("Justificativa da modalidade: " + pad.motivo, W - 2 * M), M, last() + 5); }
   const rows: any[] = [];
   const pk = orc.porItem?.pkg;
-  if (pk) rows.push([servicos[pad.pacote]?.descricao || servicos[pad.pacote]?.nome, "1", "por dia", nq(pk.line.qtd), "Pacote", brl(pk.total)]);
+  if (pk) rows.push([servicos[pad.pacote]?.descricao || servicos[pad.pacote]?.nome, "1", pad.pacoteFreq === "alternados" ? "dias alternados" : "por dia", nq(pk.line.qtd), "Pacote", brl(pk.total)]);
   pad.itens.forEach((it: any, i: number) => {
     const s = servicos[it.sid]; const r = orc.porItem?.["i" + i];
     const cob = !r ? "" : r.cobrada === 0 ? "Incluso" : r.inclusa === 0 ? "Cobrado" : "Parte incluso";
-    rows.push([(s?.nome || it.sid) + (it.obs ? `\n${it.obs}` : ""), nq(it.qtd), FREQ[it.freq], r ? nq(r.line.qtd) : "0", cob, brl(r?.total || 0)]);
+    const per = it.ini || it.fim ? `\nde ${curta(it.ini || pad.ini)} a ${curta(it.fim || pad.fim)}` : "";
+    rows.push([(s?.nome || it.sid) + per + (it.obs ? `\n${it.obs}` : ""), nq(it.qtd), FREQ[it.freq], r ? nq(r.line.qtd) : "0", cob, brl(r?.total || 0)]);
   });
-  at({ startY: last() + (pad.motivo ? 10 : 4), head: [["ITEM", "QTD", "FREQUÊNCIA", "PREVISTO", "COBERTURA", "VALOR"]], body: rows,
+  (pad.aditivos || []).filter((a: any) => a.status === "aprovado").forEach((ad: any, k: number) => {
+    ad.itens.forEach((it: any, i: number) => {
+      const s = servicos[it.sid]; const r = orc.porItem?.[`a${k}-${i}`];
+      const cob = !r ? "" : r.cobrada === 0 ? "Incluso" : r.inclusa === 0 ? "Cobrado" : "Parte incluso";
+      rows.push([`${s?.nome || it.sid}\nAditivo ${ad.codigo || ""} · ${curta(it.ini || ad.ini)} a ${curta(it.fim || ad.fim)}`, nq(it.qtd), FREQ[it.freq], r ? nq(r.line.qtd) : "0", cob, brl(r?.total || 0)]);
+    });
+  });
+  at({ startY: last() + (usaEsc && pad.motivo ? 10 : 4), head: [["ITEM", "QTD", "FREQUÊNCIA", "PREVISTO", "COBERTURA", "VALOR"]], body: rows,
     foot: [["", "", "", "", "TOTAL PREVISTO", brl(orc.cobrado)], ["", "", "", "", "INCLUSO NO PACOTE", brl(orc.incluso)]],
     footStyles: { fillColor: [227, 243, 251], textColor: [6, 90, 140], fontStyle: "bold" },
     columnStyles: { 1: { halign: "center", cellWidth: 12 }, 2: { cellWidth: 28 }, 3: { halign: "center", cellWidth: 21 }, 4: { cellWidth: 26 }, 5: { halign: "right", cellWidth: 28 } } });

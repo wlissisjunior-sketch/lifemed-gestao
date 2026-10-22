@@ -279,7 +279,8 @@ function PastaModal({ onClose }: { onClose: () => void }) {
     }
     const capa = { titulo: l.p.nome, linhas: [
       `Competência: ${mesAno(comp!.id)} (${dateBR(comp!.ini)} a ${dateBR(comp!.fim)})`,
-      l.p.cns ? `CNS: ${l.p.cns}` : "", pad ? `PAD versão ${pad.versao}${pad.autorizacao ? ` · autorização ${pad.autorizacao}` : ""} · ${pad.operadora}` : "Sem PAD no período",
+      l.p.cns ? `CNS: ${l.p.cns}` : "", pad ? `PAD${pad.codSesab ? ` SESAB ${pad.codSesab}` : ""} versão ${pad.versao}${pad.autorizacao ? ` · autorização ${pad.autorizacao}` : ""} · ${pad.operadora}` : "Sem PAD no período",
+      ...(pad?.aditivos || []).filter((x) => x.status === "aprovado").map((x) => `Aditivo ${x.codigo || ""} · ${x.tipo} · ${dateBR(x.ini)} a ${dateBR(x.fim)}`),
       `Relatórios exigidos: ${l.entregues} de ${l.total} entregues`, `Gerado em ${dateTimeBR(new Date().toISOString())}`,
     ].filter(Boolean) };
     return montarPasta(capa, itens);

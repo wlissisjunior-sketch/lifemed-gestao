@@ -180,9 +180,10 @@ Histórico de alterações.
 | Tabela | Conteúdo |
 |---|---|
 | `escala_criterios`, `escala_opcoes`, `escala_faixas` | Escala de complexidade configurável: critérios, opções com pontos (uma opção pode exigir uma modalidade, ex.: ventilação mecânica → 24h c/ VM) e faixas de pontos → modalidade sugerida |
-| `pads` | Uma linha por versão do PAD: paciente, versão, versão anterior, situação (`rascunho`, `enviado`, `autorizado`, `encerrado`), operadora, nº da autorização, médico/CRM, início e fim, pontos, modalidade sugerida e escolhida (com motivo), objetivos, critérios de alta, reavaliação e datas de envio/autorização/encerramento |
+| `pads` | Uma linha por versão do PAD: paciente, versão, versão anterior, código do PAD na SESAB, se usa a escala, visitas do pacote (`dia` ou `alternados`), situação (`rascunho`, `enviado`, `autorizado`, `encerrado`), operadora, nº da autorização, médico/CRM, início e fim, pontos, modalidade sugerida e escolhida (com motivo), objetivos, critérios de alta, reavaliação e datas de envio/autorização/encerramento |
 | `pad_escala` | Respostas da avaliação de complexidade |
-| `pad_itens` | Itens previstos: serviço, quantidade e frequência (`dia`, `semana`, `mes`, `periodo`) |
+| `pad_itens` | Itens previstos: serviço, quantidade, frequência (`dia`, `alternados`, `48h`, `semana`, `mes`, `periodo`) e, se o item não vale o período inteiro, data de início e fim |
+| `pad_aditivos`, `pad_aditivo_itens` | Aditivos da SESAB durante o período: código, tipo, início e fim, situação (`solicitado`, `aprovado`, `negado`), justificativa e itens. Só os aprovados entram na previsão e no checklist |
 | `pad_relatorios` | Tipos de relatório exigidos enquanto o PAD vale |
 
 Regras na aplicação (`src/lib/pad.ts`): previsão por frequência e período, orçamento pelo motor de cobrança, situação (em vigor, vence em N dias, vencido), previsto x realizado e diferença entre versões.
@@ -211,6 +212,7 @@ A interface usada pelas telas está em `src/lib/datasource.ts`. Para ligar o ban
 | GET | `/api/planserv?q=...` | busca |
 | GET / POST / PUT | `/api/pads[/{id}]` | listar, criar e editar PAD (só em rascunho) |
 | POST | `/api/pads/{id}/enviar`, `/autorizar`, `/encerrar`, `/nova-versao` | mudança de situação (autorizar e encerrar: administrador) |
+| POST / PUT / DELETE | `/api/pads/{id}/aditivos[/{aditivo}]` | incluir, editar e excluir aditivo (excluir: administrador) |
 | GET / PUT | `/api/escala` | escala de complexidade (alterar: administrador) |
 | POST | `/api/arquivos` | recebe o PDF, valida (PDF, tamanho, páginas) e devolve a chave |
 | GET / DELETE | `/api/arquivos/{chave}` | baixar / apagar |

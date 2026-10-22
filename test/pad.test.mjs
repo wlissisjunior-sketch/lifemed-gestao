@@ -51,4 +51,41 @@ const v2 = { ...full, itens: [{ sid: "s41", qtd: 2, freq: "dia" }, { sid: "s17",
 const d = P.diffVersoes(full, v2, svcs);
 console.log(d);
 assert.equal(d.length, 4);
+
+// ---- caso real (Crispina, set/2026): gerenciamento 1x em dias alternados, 17/09 a 30/09 ----
+assert.equal(P.diasAlternados("2026-09-17", "2026-09-17", "2026-09-30"), 7);
+assert.equal(P.diasAlternados("2026-09-17", "2026-09-18", "2026-09-30"), 6);   // 19, 21, ..., 29
+assert.equal(P.diasAlternados("2026-09-17", "2026-09-01", "2026-09-16"), 0);
+assert.equal(P.diasAlternados("2026-09-17", "2026-10-01", "2026-10-31"), 16);  // 01/10, 03/10, ..., 31/10
+const cr = { id: "c", pac: "x", versao: 1, status: "autorizado", ini: "2026-09-17", fim: "2026-09-30", pacote: "s05", pacoteFreq: "alternados", sugerida: "", motivo: "",
+  escala: {}, pontos: 0, relatorios: [], operadora: "", autorizacao: "", medico: "x", crm: "", objetivos: "", alta: "", reavaliacao: "", codSesab: "102.769",
+  itens: [
+    { sid: "s28", qtd: 1, freq: "48h" },                                            // alginato de prata, troca a cada 48 h
+    { sid: "s32", qtd: 1, freq: "periodo" },                                        // creme de barreira
+    { sid: "s47", qtd: 2, freq: "dia", ini: "2026-09-22", fim: "2026-09-30" },      // suplemento 2x/dia a partir de 22/09
+    { sid: "s08", qtd: 3, freq: "semana" },                                         // fisioterapia (inclusa)
+  ] };
+const crl = Object.fromEntries(P.linhasPrevistas(cr, "2026-09-01", "2026-09-30", svcs).map((l) => [l.sid, l]));
+assert.equal(crl.s05.qtd, 7, "7 diárias em dias alternados");
+assert.equal(crl.s28.qtd, 7); assert.equal(crl.s32.qtd, 1);
+assert.equal(crl.s47.qtd, 18, "suplemento a partir de 22/09 = 18"); assert.equal(crl.s47.ini, "2026-09-22");
+const co = P.orcamento(cr, svcs, rules);
+console.log("Crispina previsto:", co.cobrado, "(fatura real R$ 3.673,80 com 9 curativos; previsto com 7 =", (3673.80 - 2 * 90.21).toFixed(2) + ")");
+assert.equal(co.cobrado, 3493.38);
+// item fora do período do PAD é recusado no envio
+assert.ok(P.pendenciasPad({ ...cr, itens: [{ sid: "s47", qtd: 1, freq: "dia", ini: "2026-10-05" }] }, E).some((x) => x.includes("fora do período")));
+// escala desligada não é exigida
+assert.equal(P.pendenciasPad({ ...cr, usarEscala: false }, E).length, 0);
+assert.ok(P.pendenciasPad({ ...cr, usarEscala: true }, E).some((x) => x.includes("complexidade")));
+
+// ---- aditivo aprovado entra na previsão; solicitado/negado não ----
+const adit = { id: "ad1", codigo: "61329", tipo: "Antibioticoterapia", ini: "2026-09-19", fim: "2026-09-25", status: "aprovado", obs: "", itens: [{ sid: "s40", qtd: 2, freq: "dia" }] };
+const cra = { ...cr, aditivos: [adit] };
+const cal = P.linhasPrevistas(cra, "2026-09-01", "2026-09-30", svcs).filter((l) => l.sid === "s40");
+assert.equal(cal.length, 1); assert.equal(cal[0].qtd, 14);
+const oa = P.orcamento(cra, svcs, rules);
+assert.equal(oa.aditivos, 2456.58); // 14 × R$ 175,47 (acima do limite de medicamento do pacote: cobrado)
+assert.equal(P.linhasPrevistas({ ...cr, aditivos: [{ ...adit, status: "solicitado" }] }, "2026-09-01", "2026-09-30", svcs).some((l) => l.sid === "s40"), false);
+const prr = P.previstoRealizado([cra], [{ sid: "s40", qtd: 14 }], "2026-09-01", "2026-09-30", svcs);
+assert.equal(prr.find((x) => x.sid === "s40").dif, 0);
 console.log("OK pad");

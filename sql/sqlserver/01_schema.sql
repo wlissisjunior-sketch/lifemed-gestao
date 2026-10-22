@@ -182,6 +182,9 @@ CREATE TABLE pads (
   paciente_id NVARCHAR(40) NOT NULL,
   versao INT NOT NULL,
   anterior_id NVARCHAR(40) NULL,
+  cod_pad_sesab NVARCHAR(30) NULL,
+  usar_escala BIT NOT NULL DEFAULT 0,
+  pacote_frequencia NVARCHAR(12) NOT NULL DEFAULT 'dia',
   status NVARCHAR(12) NOT NULL DEFAULT 'rascunho',
   operadora NVARCHAR(80) NULL,
   autorizacao NVARCHAR(60) NULL,
@@ -205,7 +208,8 @@ CREATE TABLE pads (
   CONSTRAINT pk_pads PRIMARY KEY (id),
   CONSTRAINT uq_pads_paciente_versao UNIQUE (paciente_id, versao),
   CONSTRAINT ck_pads_status CHECK (status IN ('rascunho','enviado','autorizado','encerrado')),
-  CONSTRAINT ck_pads_periodo CHECK (fim >= inicio)
+  CONSTRAINT ck_pads_periodo CHECK (fim >= inicio),
+  CONSTRAINT ck_pads_pacote_freq CHECK (pacote_frequencia IN ('dia','alternados'))
 );
 
 CREATE TABLE pad_escala (
@@ -220,15 +224,46 @@ CREATE TABLE pad_itens (
   servico_id NVARCHAR(10) NOT NULL,
   quantidade DECIMAL(12,4) NOT NULL,
   frequencia NVARCHAR(10) NOT NULL,
+  data_inicio DATE NULL,
+  data_fim DATE NULL,
   observacao NVARCHAR(300) NULL,
   CONSTRAINT pk_pad_itens PRIMARY KEY (pad_id, servico_id),
-  CONSTRAINT ck_pad_itens_freq CHECK (frequencia IN ('dia','semana','mes','periodo'))
+  CONSTRAINT ck_pad_itens_freq CHECK (frequencia IN ('dia','alternados','48h','semana','mes','periodo'))
 );
 
 CREATE TABLE pad_relatorios (
   pad_id NVARCHAR(40) NOT NULL,
   tipo_id NVARCHAR(20) NOT NULL,
   CONSTRAINT pk_pad_relatorios PRIMARY KEY (pad_id, tipo_id)
+);
+
+-- Aditivos aprovados pela SESAB durante o período do PAD (ex.: antibioticoterapia).
+CREATE TABLE pad_aditivos (
+  id NVARCHAR(40) NOT NULL,
+  pad_id NVARCHAR(40) NOT NULL,
+  codigo NVARCHAR(30) NULL,
+  tipo NVARCHAR(60) NOT NULL,
+  inicio DATE NOT NULL,
+  fim DATE NOT NULL,
+  situacao NVARCHAR(12) NOT NULL DEFAULT 'solicitado',
+  justificativa NVARCHAR(1000) NULL,
+  criado_por INT NULL,
+  criado_em DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+  avaliado_em DATETIME2 NULL,
+  CONSTRAINT pk_pad_aditivos PRIMARY KEY (id),
+  CONSTRAINT ck_pad_aditivos_situacao CHECK (situacao IN ('solicitado','aprovado','negado')),
+  CONSTRAINT ck_pad_aditivos_periodo CHECK (fim >= inicio)
+);
+
+CREATE TABLE pad_aditivo_itens (
+  aditivo_id NVARCHAR(40) NOT NULL,
+  servico_id NVARCHAR(10) NOT NULL,
+  quantidade DECIMAL(12,4) NOT NULL,
+  frequencia NVARCHAR(10) NOT NULL,
+  data_inicio DATE NULL,
+  data_fim DATE NULL,
+  observacao NVARCHAR(300) NULL,
+  CONSTRAINT pk_pad_aditivo_itens PRIMARY KEY (aditivo_id, servico_id)
 );
 
 -- ===================== anexos dos relatórios =====================
@@ -302,3 +337,7 @@ ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_comp FOREIGN K
 ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_pac FOREIGN KEY (paciente_id) REFERENCES pacientes(id);
 ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_tipo FOREIGN KEY (tipo_id) REFERENCES tipos_relatorio(id);
 ALTER TABLE relatorios_anexos ADD CONSTRAINT fk_relatorios_anexos_por FOREIGN KEY (enviado_por) REFERENCES usuarios(id);
+ALTER TABLE pad_aditivos ADD CONSTRAINT fk_pad_aditivos_pad FOREIGN KEY (pad_id) REFERENCES pads(id) ON DELETE CASCADE;
+ALTER TABLE pad_aditivos ADD CONSTRAINT fk_pad_aditivos_criado_por FOREIGN KEY (criado_por) REFERENCES usuarios(id);
+ALTER TABLE pad_aditivo_itens ADD CONSTRAINT fk_pad_aditivo_itens_aditivo FOREIGN KEY (aditivo_id) REFERENCES pad_aditivos(id) ON DELETE CASCADE;
+ALTER TABLE pad_aditivo_itens ADD CONSTRAINT fk_pad_aditivo_itens_servico FOREIGN KEY (servico_id) REFERENCES servicos(id);

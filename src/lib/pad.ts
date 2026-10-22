@@ -1,12 +1,22 @@
 // PAD — Plano de Atenção Domiciliar. Funções puras (sem banco), testadas em test/pad.test.mjs.
 import { computePatient, days, Line, LineResult, r2, Rules, Svc } from "./engine";
 
-export type Freq = "dia" | "semana" | "mes" | "periodo";
-export const FREQ_LABEL: Record<Freq, string> = { dia: "por dia", semana: "por semana", mes: "por mês", periodo: "no período" };
-export interface PadItem { sid: string; qtd: number; freq: Freq; obs?: string }
+export type Freq = "dia" | "alternados" | "48h" | "semana" | "mes" | "periodo";
+export const FREQ_LABEL: Record<Freq, string> = { dia: "por dia", alternados: "em dias alternados", "48h": "a cada 48 h", semana: "por semana", mes: "por mês", periodo: "no período" };
+export const FREQS: Freq[] = ["dia", "alternados", "48h", "semana", "mes", "periodo"];
+/** ini/fim opcionais: sem datas, o item vale o período inteiro do PAD (ou do aditivo). */
+export interface PadItem { sid: string; qtd: number; freq: Freq; obs?: string; ini?: string; fim?: string }
+export type AditivoStatus = "solicitado" | "aprovado" | "negado";
+export interface Aditivo {
+  id: string; codigo: string; tipo: string; ini: string; fim: string; status: AditivoStatus;
+  itens: PadItem[]; obs: string; em?: string; por?: string; avaliadoEm?: string;
+}
+export const TIPOS_ADITIVO = ["Antibioticoterapia", "Curativo especial", "Dieta ou suplemento", "Equipamento", "Mudança de programação", "Outro"];
+export type PacoteFreq = "dia" | "alternados";
 export type PadStatus = "rascunho" | "enviado" | "autorizado" | "encerrado";
 export interface Pad {
   id: string; pac: string; versao: number; anterior?: string; status: PadStatus;
+  codSesab?: string; usarEscala?: boolean; pacoteFreq?: PacoteFreq; aditivos?: Aditivo[];
   operadora: string; autorizacao: string; medico: string; crm: string;
   ini: string; fim: string;
   escala: Record<string, number>; pontos: number; sugerida: string; pacote: string; motivo: string;
@@ -59,12 +69,29 @@ export function pontuar(esc: Escala, resp: Record<string, number>) {
   return { pontos, sugerida: sid, completo: respondidos === esc.criterios.length, respondidos };
 }
 
-/** Quantidade prevista de um item dentro de [a, b] (recorte do período do PAD). */
-export function qtdPrevista(it: PadItem, pad: { ini: string; fim: string }, a: string, b: string): number {
-  const ov = overlap(pad.ini, pad.fim, a, b); if (!ov) return 0;
+/** Dias em [a, b] que caem na alternância iniciada em `ancora` (ancora, ancora+2, ancora+4…). */
+export function diasAlternados(ancora: string, a: string, b: string): number {
+  const ini = maxS(ancora, a); if (ini > b) return 0;
+  const off = days(ancora, ini) - 1;                 // distância da âncora até o 1º dia da janela
+  const primeiro = off % 2 === 0 ? ini : addDays(ini, 1);
+  if (primeiro > b) return 0;
+  return Math.floor((days(primeiro, b) - 1) / 2) + 1;
+}
+
+/** Janela em que o item vale: as datas dele (se houver) dentro do período do PAD ou do aditivo. */
+export function janelaItem(it: PadItem, base: { ini: string; fim: string }): { ini: string; fim: string } | null {
+  const ov = overlap(base.ini, base.fim, it.ini || base.ini, it.fim || base.fim);
+  return ov ? { ini: ov[0], fim: ov[1] } : null;
+}
+
+/** Quantidade prevista de um item em [a, b]. `base` = período do PAD (ou do aditivo). */
+export function qtdPrevista(it: PadItem, base: { ini: string; fim: string }, a: string, b: string): number {
+  const w = janelaItem(it, base); if (!w) return 0;
+  const ov = overlap(w.ini, w.fim, a, b); if (!ov) return 0;
   const d = days(ov[0], ov[1]); const q = Number(it.qtd) || 0;
   switch (it.freq) {
     case "dia": return r2(q * d);
+    case "alternados": case "48h": return r2(q * diasAlternados(w.ini, ov[0], ov[1]));
     case "semana": return Math.round((q * d) / 7);
     case "mes": {
       // proporcional aos dias de cada mês tocado
@@ -77,32 +104,49 @@ export function qtdPrevista(it: PadItem, pad: { ini: string; fim: string }, a: s
       }
       return Math.round(tot);
     }
-    case "periodo": return Math.round((q * d) / days(pad.ini, pad.fim));
+    case "periodo": return Math.round((q * d) / days(w.ini, w.fim));
   }
   return 0;
 }
 
-/** Linhas previstas pelo PAD em [a, b], no formato do motor de cobrança. */
-export function linhasPrevistas(pad: Pad, a: string, b: string, svcs: Record<string, Svc>): Line[] {
-  const ov = overlap(pad.ini, pad.fim, a, b); if (!ov) return [];
+/** Diárias do pacote em [a, b] (todos os dias ou em dias alternados). */
+export function diariasPacote(pad: Pick<Pad, "ini" | "fim" | "pacoteFreq">, a: string, b: string): number {
+  const ov = overlap(pad.ini, pad.fim, a, b); if (!ov) return 0;
+  return pad.pacoteFreq === "alternados" ? diasAlternados(pad.ini, ov[0], ov[1]) : days(ov[0], ov[1]);
+}
+
+const aprovados = (pad: Pad) => (pad.aditivos || []).filter((x) => x.status === "aprovado");
+
+/** Linhas previstas pelo PAD em [a, b], no formato do motor de cobrança (inclui os aditivos aprovados). */
+export function linhasPrevistas(pad: Pad, a: string, b: string, svcs: Record<string, Svc>, comAditivos = true): Line[] {
   const out: Line[] = [];
-  if (pad.pacote && svcs[pad.pacote]) out.push({ id: "pkg", sid: pad.pacote, qtd: days(ov[0], ov[1]), ini: ov[0], fim: ov[1], modo: "auto", vu: svcs[pad.pacote].valor });
-  pad.itens.forEach((it, i) => {
-    const s = svcs[it.sid]; if (!s) return;
-    const q = qtdPrevista(it, pad, a, b); if (q <= 0) return;
-    out.push({ id: "i" + i, sid: it.sid, qtd: q, ini: ov[0], fim: ov[1], modo: "auto", vu: s.valor });
-  });
+  const ov = overlap(pad.ini, pad.fim, a, b);
+  if (ov && pad.pacote && svcs[pad.pacote]) out.push({ id: "pkg", sid: pad.pacote, qtd: diariasPacote(pad, a, b), ini: ov[0], fim: ov[1], modo: "auto", vu: svcs[pad.pacote].valor });
+  const push = (id: string, it: PadItem, base: { ini: string; fim: string }) => {
+    const s = svcs[it.sid]; if (!s || s.pacote) return;
+    const w = janelaItem(it, base); if (!w) return;
+    const o = overlap(w.ini, w.fim, a, b); if (!o) return;
+    const q = qtdPrevista(it, base, a, b); if (q <= 0) return;
+    out.push({ id, sid: it.sid, qtd: q, ini: o[0], fim: o[1], modo: "auto", vu: s.valor });
+  };
+  if (ov) pad.itens.forEach((it, i) => push("i" + i, it, pad));
+  if (comAditivos) aprovados(pad).forEach((ad, k) => ad.itens.forEach((it, i) => push(`a${k}-${i}`, it, ad)));
   return out;
 }
 
-/** Orçamento do período inteiro do PAD. */
+/** Orçamento do período inteiro do PAD (com os aditivos aprovados) e quanto vem dos aditivos. */
 export function orcamento(pad: Pad, svcs: Record<string, Svc>, rules: Rules) {
-  const res: LineResult[] = computePatient(linhasPrevistas(pad, pad.ini, pad.fim, svcs), svcs, rules);
+  const ini = [pad.ini, ...aprovados(pad).map((x) => x.ini)].sort()[0], fim = [pad.fim, ...aprovados(pad).map((x) => x.fim)].sort().slice(-1)[0];
+  const res: LineResult[] = computePatient(linhasPrevistas(pad, ini, fim, svcs), svcs, rules);
   const cobrado = r2(res.reduce((s, r) => s + r.total, 0));
   const incluso = r2(res.reduce((s, r) => s + r.naoCobrado, 0));
+  const aditivos = r2(res.filter((r) => r.line.id.startsWith("a")).reduce((s, r) => s + r.total, 0));
   const porItem: Record<string, LineResult> = {}; for (const r of res) porItem[r.line.id] = r;
-  return { res, cobrado, incluso, porItem, dias: days(pad.ini, pad.fim) };
+  return { res, cobrado, incluso, aditivos, porItem, dias: days(pad.ini, pad.fim), diarias: diariasPacote(pad, pad.ini, pad.fim) };
 }
+
+/** Escala em uso? Planos antigos sem o campo usam a escala se já tinham respostas. */
+export const usaEscala = (p: Pick<Pad, "usarEscala" | "escala">) => p.usarEscala ?? Object.keys(p.escala || {}).length > 0;
 
 /** Situação para exibição (considera a data de hoje). */
 export function situacao(pad: Pick<Pad, "status" | "ini" | "fim">, hoje: string) {
@@ -154,6 +198,8 @@ export function diffVersoes(a: Pad, b: Pad, svcs: Record<string, Svc>, nomeTipo:
   for (const sid of Object.keys(mb)) if (!ma[sid]) out.push(`Incluído: ${n(sid)} (${fq(mb[sid])})`);
   for (const sid of Object.keys(ma)) if (!mb[sid]) out.push(`Retirado: ${n(sid)}`);
   for (const sid of Object.keys(ma)) if (mb[sid] && (ma[sid].qtd !== mb[sid].qtd || ma[sid].freq !== mb[sid].freq)) out.push(`Alterado: ${n(sid)}, de ${fq(ma[sid])} para ${fq(mb[sid])}`);
+  for (const sid of Object.keys(ma)) if (mb[sid] && ((ma[sid].ini || "") !== (mb[sid].ini || "") || (ma[sid].fim || "") !== (mb[sid].fim || ""))) out.push(`Período alterado: ${n(sid)}`);
+  if ((a.pacoteFreq || "dia") !== (b.pacoteFreq || "dia")) out.push(`Visitas do pacote: ${b.pacoteFreq === "alternados" ? "passam a ser em dias alternados" : "passam a ser todos os dias"}`);
   const ra = new Set(a.relatorios), rb = new Set(b.relatorios);
   for (const r of rb) if (!ra.has(r)) out.push(`Relatório exigido: ${nomeTipo(r)}`);
   for (const r of ra) if (!rb.has(r)) out.push(`Relatório dispensado: ${nomeTipo(r)}`);
@@ -168,8 +214,12 @@ export function pendenciasPad(p: Pad, esc: Escala): string[] {
   if (!p.ini || !p.fim) e.push("Informe o início e o fim do período.");
   else if (p.fim < p.ini) e.push("O fim do período está antes do início.");
   if (!p.pacote) e.push("Escolha a modalidade (pacote).");
-  if (!pontuar(esc, p.escala).completo) e.push("Responda todos os critérios da avaliação de complexidade.");
-  if (p.pacote && p.sugerida && p.pacote !== p.sugerida && !p.motivo.trim()) e.push("Explique por que a modalidade é diferente da sugerida pela escala.");
+  if (usaEscala(p)) {
+    if (!pontuar(esc, p.escala).completo) e.push("Responda todos os critérios da avaliação de complexidade (ou desligue a escala).");
+    if (p.pacote && p.sugerida && p.pacote !== p.sugerida && !p.motivo.trim()) e.push("Explique por que a modalidade é diferente da sugerida pela escala.");
+  }
+  for (const it of p.itens) if (it.ini && it.fim && it.fim < it.ini) e.push("Há item com fim antes do início.");
+  for (const it of p.itens) if ((it.ini && (it.ini < p.ini || it.ini > p.fim)) || (it.fim && (it.fim > p.fim || it.fim < p.ini))) { e.push("Há item com datas fora do período do PAD."); break; }
   if (!p.medico.trim()) e.push("Informe o médico responsável.");
   if (p.itens.some((i) => !(Number(i.qtd) > 0))) e.push("Há itens sem quantidade.");
   return e;

@@ -1,8 +1,9 @@
 import { useStore, uid } from "../lib/store";
 import {
-  Pad, PadItem, Freq, FREQ_LABEL, Escala, Criterio, pontuar, orcamento, situacao, ultimasVersoes, padsDoPeriodo,
-  previstoRealizado, diffVersoes, pendenciasPad, addDays, qtdPrevista,
+  Pad, PadItem, Freq, FREQ_LABEL, FREQS, Escala, Criterio, Aditivo, AditivoStatus, TIPOS_ADITIVO, pontuar, orcamento, situacao, ultimasVersoes, padsDoPeriodo,
+  previstoRealizado, diffVersoes, pendenciasPad, addDays, qtdPrevista, usaEscala, janelaItem,
 } from "../lib/pad";
+import { LineResult, Svc } from "../lib/engine";
 import { days } from "../lib/engine";
 import { dateBR, dateTimeBR, mesAno, money, norm, parseQtd, qty, todayISO } from "../lib/format";
 import { Banner, Confirm, Empty, Field, Modal, PageHead, useNav } from "../components/ui";
@@ -10,9 +11,7 @@ import { pdfPad } from "../lib/exporters";
 
 const { useMemo, useState, useEffect } = React;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
-const FREQS: Freq[] = ["dia", "semana", "mes", "periodo"];
-const FREQ_CURTA: Record<Freq, string> = { dia: "/dia", semana: "/semana", mes: "/mês", periodo: "no período" };
-const freqPadrao = (cat: string): Freq => (/EQUIPAMENTO|MEDICAMENTO|DIETA/.test(cat) ? "dia" : /TRANSPORTE/.test(cat) ? "periodo" : "semana");
+const freqPadrao = (cat: string): Freq => (/EQUIPAMENTO|MEDICAMENTO|DIETA/.test(cat) ? "dia" : /CURATIVO/.test(cat) ? "48h" : /TRANSPORTE/.test(cat) ? "periodo" : "semana");
 
 export default function PadPage() {
   const { arg } = useNav();
@@ -82,7 +81,7 @@ function PadLista() {
           <tbody>
             {vis.map(({ p, pad, sit, orc }) => (
               <tr key={p.id} className={p.ativo ? "" : "dim"}>
-                <td><b>{p.nome}</b>{pad && <div className="hint">versão {pad.versao}{pad.autorizacao ? ` · autorização ${pad.autorizacao}` : ""}</div>}</td>
+                <td><b>{p.nome}</b>{pad && <div className="hint">{pad.codSesab ? `PAD SESAB ${pad.codSesab} · ` : ""}versão {pad.versao}{pad.autorizacao ? ` · autorização ${pad.autorizacao}` : ""}</div>}</td>
                 <td>{pad ? servicos[pad.pacote]?.nome || "—" : <span className="muted">—</span>}</td>
                 <td className="small">{pad ? `${dateBR(pad.ini)} a ${dateBR(pad.fim)}` : "—"}</td>
                 <td>{sit ? <span className={`pill ${sit.kind}`}>{sit.label}</span> : <span className="pill warn">Sem PAD</span>}</td>
@@ -128,6 +127,7 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
   const novoPad = (pac: string): Pad => {
     const ant = doPac(pac)[0];
     return { id: "", pac, versao: (ant?.versao || 0) + 1, anterior: ant?.id, status: "rascunho", operadora: ant?.operadora || "PLANSERV", autorizacao: "",
+      codSesab: "", usarEscala: false, pacoteFreq: ant?.pacoteFreq || "dia", aditivos: [],
       medico: ant?.medico || "", crm: ant?.crm || "", ini: hoje, fim: addDays(hoje, 29), escala: {}, pontos: 0, sugerida: "", pacote: "", motivo: "",
       itens: [], relatorios: tipos.map((t) => t.id), objetivos: "", alta: "", reavaliacao: "" };
   };
@@ -135,6 +135,7 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
   const [sujo, setSujo] = useState(!base);
   const [pend, setPend] = useState([] as string[]);
   const [conf, setConf] = useState(null as null | "excluir" | "encerrar" | "autorizar");
+  const [adEd, setAdEd] = useState(null as null | { ad: Aditivo; novo: boolean });
   const [txt, setTxt] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (base && !sujo) setF(clone(base)); }, [base]);
@@ -145,8 +146,6 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
   const pt = pontuar(escala, f.escala);
   const orc = orcamento(f, servicos, rules);
   const pacotes = svlist.filter((s) => s.pacote && (s.ativo || s.id === f.pacote));
-  const itensSvc = svlist.filter((s) => !s.pacote && s.ativo);
-  const cats = [...new Set(itensSvc.map((s) => s.categoria))];
   const versoes = doPac(f.pac);
   const ultima = versoes[0];
   const anterior = f.anterior ? pads.find((x) => x.id === f.anterior) : null;
@@ -161,9 +160,9 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
     if (!f.pacote || f.pacote === f.sugerida) patch.pacote = r.sugerida;  // acompanha a sugestão até alguém trocar
     set(patch);
   };
-  const setItem = (i: number, patch: Partial<PadItem>) => { const it = [...f.itens]; it[i] = { ...it[i], ...patch }; set({ itens: it }); };
-  const addItem = (sid: string) => { if (!sid) return; const s = servicos[sid]; set({ itens: [...f.itens, { sid, qtd: 1, freq: freqPadrao(s.categoria), obs: "" }] }); };
-  const delItem = (i: number) => set({ itens: f.itens.filter((_, k) => k !== i) });
+  const escOn = usaEscala(f);
+  const aditivos = f.aditivos || [];
+  const podeAditivo = can("operador") && !!f.id && (f.status === "enviado" || f.status === "autorizado");
 
   const corpo = (x: Pad) => { const { id, ...rest } = x as any; return { ...rest, pontos: pontuar(escala, x.escala).pontos, sugerida: pontuar(escala, x.escala).sugerida }; };
   const salvar = async (extra: Partial<Pad> = {}, okMsg = "PAD salvo.") => {
@@ -191,7 +190,8 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
     const dur = Math.max(1, days(f.ini, f.fim));
     const ini = addDays(f.fim, 1);
     const doc = { ...corpo(f), versao: f.versao + 1, anterior: f.id, status: "rascunho", autorizacao: "", ini, fim: addDays(ini, dur - 1),
-      criadoEm: new Date().toISOString(), por: meId || "", enviadoEm: "", autorizadoEm: "", encerradoEm: "", motivoEnc: "", reavaliacao: "" };
+      criadoEm: new Date().toISOString(), por: meId || "", enviadoEm: "", autorizadoEm: "", encerradoEm: "", motivoEnc: "", reavaliacao: "", aditivos: [], codSesab: "",
+      itens: f.itens.map(({ ini: _i, fim: _f, ...it }) => it) };
     if (await write(() => db.doc(`pads/${id}`).set(doc), `Versão ${f.versao + 1} criada como rascunho.`)) { log("nova versão do PAD", p?.nome || f.pac, `versão ${f.versao + 1}`); go("pad", { id }); }
   };
   const excluir = async () => { setConf(null); if (await write(() => db.doc(`pads/${f.id}`).delete(), "Rascunho excluído.")) { log("excluir rascunho de PAD", p?.nome || f.pac); go("pad"); } };
@@ -232,8 +232,9 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
 
       <div className="kpis" style={{ marginBottom: 14 }}>
         <div className="kpi"><span>Período</span><b>{nDias} dias</b><small>{dateBR(f.ini)} a {dateBR(f.fim)}</small></div>
-        <div className="kpi"><span>Complexidade</span><b>{pt.pontos} pts</b><small>{pt.completo ? `sugere ${servicos[pt.sugerida]?.nome || "—"}` : `${pt.respondidos} de ${escala.criterios.length} critérios`}</small></div>
-        <div className="kpi money"><span>Valor previsto do período</span><b>{money(orc.cobrado)}</b><small>orçamento para a operadora</small></div>
+        {escOn ? <div className="kpi"><span>Complexidade</span><b>{pt.pontos} pts</b><small>{pt.completo ? `sugere ${servicos[pt.sugerida]?.nome || "—"}` : `${pt.respondidos} de ${escala.criterios.length} critérios`}</small></div>
+          : <div className="kpi"><span>Diárias do pacote</span><b>{orc.diarias}</b><small>{f.pacoteFreq === "alternados" ? "visitas em dias alternados" : "visitas todos os dias"}</small></div>}
+        <div className="kpi money"><span>Valor previsto do período</span><b>{money(orc.cobrado)}</b><small>{orc.aditivos > 0 ? `inclui ${money(orc.aditivos)} de aditivos aprovados` : "pré-faturamento do período"}</small></div>
         <div className="kpi cov"><span>Incluso no pacote</span><b>{money(orc.incluso)}</b><small>não cobrado à parte</small></div>
       </div>
 
@@ -242,78 +243,74 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
         <section className="card stack">
           <h2>1. Identificação e período</h2>
           <div className="grid3" style={{ alignItems: "start" }}>
+            <Field label="Código do PAD SESAB" id="pd-sesab" hint="Número do PAD no sistema da SESAB"><input id="pd-sesab" disabled={ro} inputMode="numeric" value={f.codSesab || ""} onChange={(e: any) => set({ codSesab: e.target.value })} /></Field>
             <Field label="Operadora" id="pd-op"><input id="pd-op" disabled={ro} value={f.operadora} onChange={(e: any) => set({ operadora: e.target.value })} /></Field>
             <Field label="Nº da autorização" id="pd-aut" hint={f.status === "rascunho" ? "Preenchido quando a operadora autorizar" : undefined}><input id="pd-aut" disabled={ro} value={f.autorizacao} onChange={(e: any) => set({ autorizacao: e.target.value })} /></Field>
-            <Field label="Reavaliação prevista" id="pd-rea"><input id="pd-rea" type="date" disabled={ro} value={f.reavaliacao} onChange={(e: any) => set({ reavaliacao: e.target.value })} /></Field>
             <Field label="Médico responsável" id="pd-med"><input id="pd-med" disabled={ro} value={f.medico} onChange={(e: any) => set({ medico: e.target.value })} /></Field>
             <Field label="CRM" id="pd-crm"><input id="pd-crm" disabled={ro} value={f.crm} onChange={(e: any) => set({ crm: e.target.value })} /></Field>
-            <div />
+            <Field label="Reavaliação prevista" id="pd-rea"><input id="pd-rea" type="date" disabled={ro} value={f.reavaliacao} onChange={(e: any) => set({ reavaliacao: e.target.value })} /></Field>
             <Field label="Início" id="pd-ini"><input id="pd-ini" type="date" disabled={ro} value={f.ini} onChange={(e: any) => set({ ini: e.target.value, fim: f.fim && nDias ? addDays(e.target.value, nDias - 1) : f.fim })} /></Field>
             <Field label="Fim" id="pd-fim"><input id="pd-fim" type="date" disabled={ro} min={f.ini} value={f.fim} onChange={(e: any) => set({ fim: e.target.value })} /></Field>
             {!ro && <div className="field"><label>Duração</label><div className="row" style={{ gap: 6 }}>{[30, 60, 90].map((n) => <button key={n} type="button" className={`btn sm ${nDias === n ? "" : "sec"}`} onClick={() => set({ fim: addDays(f.ini, n - 1) })}>{n} dias</button>)}</div></div>}
           </div>
         </section>
 
-        {/* 2. complexidade */}
+        {/* 2. programa e escala */}
         <section className="card stack">
-          <div className="row between"><h2>2. Avaliação de complexidade</h2><span className="hint">{escala.nome}</span></div>
-          <div className="grid2">
-            {escala.criterios.map((c: Criterio) => (
-              <Field key={c.id} label={c.nome} id={`pd-${c.id}`}>
-                <select id={`pd-${c.id}`} disabled={ro} value={f.escala[c.id] ?? ""} onChange={(e: any) => setEsc(c.id, e.target.value)}>
-                  <option value="">Escolha…</option>
-                  {c.opcoes.map((o, i) => <option key={i} value={i}>{o.t} ({o.p} pt{o.p === 1 ? "" : "s"})</option>)}
-                </select>
-              </Field>
-            ))}
-          </div>
-          <div className="scorebox">
-            <div><span className="eyebrow">Pontuação</span><b>{pt.pontos}</b></div>
-            <div className="grow"><span className="eyebrow">Modalidade sugerida pela escala</span><b>{pt.completo ? servicos[pt.sugerida]?.nome || "—" : "Responda todos os critérios"}</b></div>
-          </div>
+          <h2>2. Programa</h2>
           <div className="grid2">
             <Field label="Modalidade do PAD (pacote)" id="pd-pkg"><select id="pd-pkg" disabled={ro} value={f.pacote} onChange={(e: any) => set({ pacote: e.target.value })}>
               <option value="">Escolha…</option>{pacotes.map((s) => <option key={s.id} value={s.id}>{s.nome} — {money(s.valor)}/diária</option>)}</select></Field>
+            <Field label="Visitas do pacote" id="pd-pf" hint={`${orc.diarias} diária(s) no período`}><select id="pd-pf" disabled={ro} value={f.pacoteFreq || "dia"} onChange={(e: any) => set({ pacoteFreq: e.target.value })}>
+              <option value="dia">Todos os dias</option><option value="alternados">Em dias alternados</option></select></Field>
+          </div>
+          <label className="check"><input type="checkbox" disabled={ro} checked={escOn} onChange={(e: any) => set({ usarEscala: e.target.checked })} />
+            <span><b>Usar a avaliação de complexidade</b><br /><span className="hint">Opcional. Quando o programa já vem definido no PAD da SESAB, deixe desligado.</span></span></label>
+          {escOn && (<>
+            <div className="row between"><h3>Avaliação de complexidade</h3><span className="hint">{escala.nome}</span></div>
+            <div className="grid2">
+              {escala.criterios.map((c: Criterio) => (
+                <Field key={c.id} label={c.nome} id={`pd-${c.id}`}>
+                  <select id={`pd-${c.id}`} disabled={ro} value={f.escala[c.id] ?? ""} onChange={(e: any) => setEsc(c.id, e.target.value)}>
+                    <option value="">Escolha…</option>
+                    {c.opcoes.map((o, i) => <option key={i} value={i}>{o.t} ({o.p} pt{o.p === 1 ? "" : "s"})</option>)}
+                  </select>
+                </Field>
+              ))}
+            </div>
+            <div className="scorebox">
+              <div><span className="eyebrow">Pontuação</span><b>{pt.pontos}</b></div>
+              <div className="grow"><span className="eyebrow">Modalidade sugerida pela escala</span><b>{pt.completo ? servicos[pt.sugerida]?.nome || "—" : "Responda todos os critérios"}</b></div>
+            </div>
             {f.pacote && pt.completo && f.pacote !== pt.sugerida && (
               <Field label="Por que a modalidade é diferente da sugerida?" id="pd-mot"><textarea id="pd-mot" rows={2} disabled={ro} value={f.motivo} onChange={(e: any) => set({ motivo: e.target.value })} /></Field>)}
-          </div>
+          </>)}
         </section>
 
         {/* 3. itens */}
         <section className="card flush">
           <div className="card-head"><h2>3. Equipe, equipamentos, medicamentos e insumos</h2>
-            <span className="hint">Previsão para os {nDias} dias do PAD. A cobertura segue as regras do pacote escolhido.</span></div>
-          <div className="pad-its">
-            <div className="pad-it head"><span>Item</span><span>Qtd</span><span>Frequência</span><span>Observação</span><span className="num">Previsto</span><span>Cobertura</span><span className="num">Valor</span><span /></div>
-            {f.itens.length === 0 && <Empty>Nenhum item ainda. {!ro && "Use o campo abaixo para incluir profissionais, equipamentos, medicamentos, dieta e curativos."}</Empty>}
-            {f.itens.map((it, i) => {
-              const r = orc.porItem["i" + i]; const s = servicos[it.sid];
-              const prev = qtdPrevista(it, f, f.ini, f.fim);
-              const cob = !r ? null : r.cobrada === 0 ? <span className="pill cov">Incluso no pacote</span> : r.inclusa === 0 ? <span className="pill">Cobrado à parte</span> : <span className="pill warn">Parte incluso</span>;
-              return (
-                <div className="pad-it" key={i}>
-                  <div className="svc"><b>{s?.nome || it.sid}</b><div className="hint">{s?.categoria.toLowerCase()} · {money(s?.valor)}</div></div>
-                  <div><span className="lab">Qtd</span><input className="inp" disabled={ro} inputMode="decimal" aria-label={`Quantidade de ${s?.nome}`} value={String(it.qtd).replace(".", ",")}
-                    onChange={(e: any) => { const q = parseQtd(e.target.value); setItem(i, { qtd: q == null || isNaN(q) ? 0 : q }); }} /></div>
-                  <div><span className="lab">Frequência</span><select className="inp" disabled={ro} aria-label={`Frequência de ${s?.nome}`} value={it.freq} onChange={(e: any) => setItem(i, { freq: e.target.value })}>
-                    {FREQS.map((q) => <option key={q} value={q}>{FREQ_LABEL[q]}</option>)}</select></div>
-                  <div><span className="lab">Observação</span><input className="inp" disabled={ro} aria-label={`Observação de ${s?.nome}`} value={it.obs || ""} onChange={(e: any) => setItem(i, { obs: e.target.value })} /></div>
-                  <div className="num"><span className="lab">Previsto</span>{qty(prev)}</div>
-                  <div>{cob}</div>
-                  <div className="num"><span className="lab">Valor</span><b>{money(r?.total || 0)}</b></div>
-                  <div className="acts">{!ro && <button className="btn sm ghost" aria-label={`Remover ${s?.nome}`} onClick={() => delItem(i)}>Remover</button>}</div>
-                </div>
-              );
-            })}
-          </div>
-          {!ro && (
-            <div className="row" style={{ padding: 12 }}>
-              <select className="inp grow" aria-label="Incluir item" value="" onChange={(e: any) => addItem(e.target.value)}>
-                <option value="">+ Incluir item…</option>
-                {cats.map((c) => <optgroup key={c} label={c}>{itensSvc.filter((s) => s.categoria === c).map((s) => <option key={s.id} value={s.id} disabled={f.itens.some((x) => x.sid === s.id)}>{s.nome}</option>)}</optgroup>)}
-              </select>
-            </div>
-          )}
+            <span className="hint">Previsão para os {nDias} dias do PAD. Sem datas, o item vale o período inteiro.</span></div>
+          <ItensEditor itens={f.itens} onChange={(itens) => set({ itens })} ro={ro} base={f} porItem={orc.porItem} prefixo="i" />
+        </section>
+
+        {/* aditivos */}
+        <section className="card flush">
+          <div className="card-head"><h2>Aditivos</h2>
+            {podeAditivo && <button className="btn sm" onClick={() => setAdEd({ novo: true, ad: { id: uid("ad"), codigo: "", tipo: TIPOS_ADITIVO[0], ini: f.ini > hoje ? f.ini : hoje < f.fim ? hoje : f.ini, fim: f.fim, status: "aprovado", itens: [], obs: "" } })}>+ Aditivo</button>}</div>
+          {f.status === "rascunho" ? <p className="hint" style={{ padding: "0 18px 16px" }}>Aditivos (antibiótico, curativo, dieta ou outro item aprovado pela SESAB durante o período) são lançados depois que o PAD for enviado ou autorizado.</p>
+            : aditivos.length === 0 ? <p className="hint" style={{ padding: "0 18px 16px" }}>Nenhum aditivo neste PAD. Só os aditivos <b>aprovados</b> entram na previsão e no checklist.</p> : (
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>Código</th><th>Tipo</th><th>Período</th><th>Itens</th><th>Situação</th><th className="num">Previsto</th><th /></tr></thead>
+              <tbody>{aditivos.map((ad) => (
+                <tr key={ad.id}>
+                  <td><b>{ad.codigo || "—"}</b></td><td>{ad.tipo}</td><td className="small">{dateBR(ad.ini)} a {dateBR(ad.fim)}</td>
+                  <td className="small">{ad.itens.map((it) => `${servicos[it.sid]?.nome || it.sid}: ${qty(it.qtd)} ${FREQ_LABEL[it.freq]}`).join("; ") || "—"}</td>
+                  <td><span className={`pill ${ad.status === "aprovado" ? "ok" : ad.status === "negado" ? "err" : "info"}`}>{ad.status === "aprovado" ? "Aprovado" : ad.status === "negado" ? "Negado" : "Solicitado"}</span></td>
+                  <td className="num"><b>{money(valorAditivo(f, ad, servicos, rules))}</b></td>
+                  <td className="num">{podeAditivo ? <button className="btn sm sec" onClick={() => setAdEd({ novo: false, ad: clone(ad) })}>Editar</button> : null}</td>
+                </tr>))}</tbody>
+            </table></div>)}
         </section>
 
         <div className="grid2" style={{ alignItems: "start" }}>
@@ -370,6 +367,8 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
         {f.status === "rascunho" && f.id && can("operador") && <div><button className="btn sm danger" onClick={() => setConf("excluir")}>Excluir rascunho</button></div>}
       </div>
 
+      {adEd && <AditivoModal pad={f} ad={adEd.ad} novo={adEd.novo} onClose={() => setAdEd(null)}
+        onSaved={(lista) => setF({ ...f, aditivos: lista })} />}
       {conf === "excluir" && <Confirm text={`Excluir o rascunho da versão ${f.versao}?`} okText="Excluir" danger onOk={excluir} onCancel={() => setConf(null)} />}
       {conf === "autorizar" && (
         <Modal title="Marcar como autorizado" onClose={() => setConf(null)}>
@@ -387,6 +386,112 @@ function PadEditor({ arg }: { arg: { id?: string; novo?: string } }) {
         </Modal>
       )}
     </>
+  );
+}
+
+/* ============================== ITENS (PAD e aditivos) ============================== */
+function ItensEditor({ itens, onChange, ro, base, porItem, prefixo }: {
+  itens: PadItem[]; onChange: (x: PadItem[]) => void; ro: boolean; base: { ini: string; fim: string }; porItem: Record<string, LineResult>; prefixo: string;
+}) {
+  const { servicos, svcList } = useStore();
+  const itensSvc = svcList.filter((s) => !s.pacote && s.ativo);
+  const cats = [...new Set(itensSvc.map((s) => s.categoria))];
+  const setItem = (i: number, patch: Partial<PadItem>) => { const it = [...itens]; it[i] = { ...it[i], ...patch }; onChange(it); };
+  const add = (sid: string) => { if (!sid) return; onChange([...itens, { sid, qtd: 1, freq: freqPadrao(servicos[sid].categoria), obs: "" }]); };
+  return (
+    <>
+      <div className="pad-its">
+        <div className="pad-it head"><span>Item</span><span>Qtd</span><span>Frequência</span><span className="num">Previsto</span><span>Cobertura</span><span className="num">Valor</span><span /></div>
+        {itens.length === 0 && <Empty>Nenhum item ainda. {!ro && "Use o campo abaixo para incluir profissionais, equipamentos, medicamentos, dieta e curativos."}</Empty>}
+        {itens.map((it, i) => {
+          const r = porItem[prefixo + i]; const s: Svc | undefined = servicos[it.sid];
+          const prev = qtdPrevista(it, base, base.ini, base.fim);
+          const w = janelaItem(it, base);
+          const cob = !r ? (prev === 0 ? <span className="pill warn">Fora do período</span> : null) : r.cobrada === 0 ? <span className="pill cov">Incluso no pacote</span> : r.inclusa === 0 ? <span className="pill">Cobrado à parte</span> : <span className="pill warn">Parte incluso</span>;
+          return (
+            <div className="pad-it" key={i}>
+              <div className="svc"><b>{s?.nome || it.sid}</b><div className="hint">{s?.categoria.toLowerCase()} · {money(s?.valor)}</div></div>
+              <div><span className="lab">Qtd</span><input className="inp" disabled={ro} inputMode="decimal" aria-label={`Quantidade de ${s?.nome}`} value={String(it.qtd).replace(".", ",")}
+                onChange={(e: any) => { const q = parseQtd(e.target.value); setItem(i, { qtd: q == null || isNaN(q) ? 0 : q }); }} /></div>
+              <div><span className="lab">Frequência</span><select className="inp" disabled={ro} aria-label={`Frequência de ${s?.nome}`} value={it.freq} onChange={(e: any) => setItem(i, { freq: e.target.value })}>
+                {FREQS.map((q) => <option key={q} value={q}>{FREQ_LABEL[q]}</option>)}</select></div>
+              <div className="num"><span className="lab">Previsto</span>{qty(prev)}</div>
+              <div>{cob}</div>
+              <div className="num"><span className="lab">Valor</span><b>{money(r?.total || 0)}</b></div>
+              <div className="acts">{!ro && <button className="btn sm ghost" aria-label={`Remover ${s?.nome}`} onClick={() => onChange(itens.filter((_, k) => k !== i))}>Remover</button>}</div>
+              <div className="pad-sub">
+                <span className="hint">Período do item:</span>
+                <input className="inp" type="date" disabled={ro} min={base.ini} max={base.fim} aria-label={`Início de ${s?.nome}`} value={it.ini || ""} onChange={(e: any) => setItem(i, { ini: e.target.value || undefined })} />
+                <span className="hint">a</span>
+                <input className="inp" type="date" disabled={ro} min={it.ini || base.ini} max={base.fim} aria-label={`Fim de ${s?.nome}`} value={it.fim || ""} onChange={(e: any) => setItem(i, { fim: e.target.value || undefined })} />
+                <span className="hint">{!it.ini && !it.fim ? "vazio = período inteiro" : w ? `${dateBR(w.ini)} a ${dateBR(w.fim)}` : "fora do período"}</span>
+                <input className="inp grow" disabled={ro} placeholder="Observação" aria-label={`Observação de ${s?.nome}`} value={it.obs || ""} onChange={(e: any) => setItem(i, { obs: e.target.value })} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {!ro && (
+        <div className="row" style={{ padding: 12 }}>
+          <select className="inp grow" aria-label="Incluir item" value="" onChange={(e: any) => add(e.target.value)}>
+            <option value="">+ Incluir item…</option>
+            {cats.map((c) => <optgroup key={c} label={c}>{itensSvc.filter((s) => s.categoria === c).map((s) => <option key={s.id} value={s.id} disabled={itens.some((x) => x.sid === s.id)}>{s.nome}</option>)}</optgroup>)}
+          </select>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Valor que o aditivo acrescenta (como se estivesse aprovado), já com as regras do pacote. */
+function valorAditivo(pad: Pad, ad: Aditivo, servicos: Record<string, Svc>, rules: any) {
+  return orcamento({ ...pad, itens: [], aditivos: [{ ...ad, status: "aprovado" }] }, servicos, rules).aditivos;
+}
+
+/* ============================== ADITIVO ============================== */
+function AditivoModal({ pad, ad, novo, onClose, onSaved }: { pad: Pad; ad: Aditivo; novo: boolean; onClose: () => void; onSaved: (l: Aditivo[]) => void }) {
+  const { servicos, rules, db, write, log, can, pacientes, meId } = useStore();
+  const [a, setA] = useState(ad);
+  const [conf, setConf] = useState(false);
+  const [erro, setErro] = useState("");
+  const tmp = orcamento({ ...pad, itens: [], aditivos: [{ ...a, status: "aprovado" }] }, servicos, rules);
+  const nome = pacientes[pad.pac]?.nome || pad.pac;
+  const gravar = async (lista: Aditivo[], msg: string, acao: string) => {
+    if (await write(() => db.doc(`pads/${pad.id}`).update({ aditivos: lista }), msg)) { log(acao, nome, `${a.codigo || "sem código"} · ${a.tipo}`); onSaved(lista); onClose(); }
+  };
+  const salvar = () => {
+    setErro("");
+    if (!a.ini || !a.fim || a.fim < a.ini) return setErro("Informe o início e o fim do aditivo.");
+    if (!a.itens.length) return setErro("Inclua pelo menos um item.");
+    if (a.itens.some((i) => !(Number(i.qtd) > 0))) return setErro("Há itens sem quantidade.");
+    const lista = novo ? [...(pad.aditivos || []), { ...a, em: new Date().toISOString(), por: meId || "" }] : (pad.aditivos || []).map((x) => (x.id === a.id ? { ...a, avaliadoEm: a.status !== ad.status ? new Date().toISOString() : x.avaliadoEm } : x));
+    gravar(lista, novo ? "Aditivo incluído." : "Aditivo atualizado.", novo ? "incluir aditivo no PAD" : "editar aditivo do PAD");
+  };
+  return (
+    <Modal title={novo ? "Novo aditivo" : `Aditivo ${a.codigo || ""}`} onClose={onClose} wide>
+      <p className="hint" style={{ marginTop: -6 }}>Item aprovado pela SESAB durante o período do PAD (ex.: antibiótico, curativo especial). Só aditivos <b>aprovados</b> entram na previsão e no checklist.</p>
+      <div className="grid3" style={{ alignItems: "start" }}>
+        <Field label="Código do aditivo (SESAB)" id="ad-cod"><input id="ad-cod" value={a.codigo} onChange={(e: any) => setA({ ...a, codigo: e.target.value })} /></Field>
+        <Field label="Tipo" id="ad-tipo"><select id="ad-tipo" value={a.tipo} onChange={(e: any) => setA({ ...a, tipo: e.target.value })}>{TIPOS_ADITIVO.map((t) => <option key={t}>{t}</option>)}</select></Field>
+        <Field label="Situação" id="ad-st"><select id="ad-st" value={a.status} onChange={(e: any) => setA({ ...a, status: e.target.value as AditivoStatus })}>
+          <option value="solicitado">Solicitado</option><option value="aprovado">Aprovado</option><option value="negado">Negado</option></select></Field>
+        <Field label="Início" id="ad-ini"><input id="ad-ini" type="date" value={a.ini} onChange={(e: any) => setA({ ...a, ini: e.target.value })} /></Field>
+        <Field label="Fim" id="ad-fim"><input id="ad-fim" type="date" min={a.ini} value={a.fim} onChange={(e: any) => setA({ ...a, fim: e.target.value })} /></Field>
+        <div className="field"><label>Previsto do aditivo</label><b style={{ font: "700 20px/1.6 var(--f-display)", color: "var(--brand-ink)" }}>{money(tmp.aditivos)}</b></div>
+      </div>
+      {(a.ini < pad.ini || a.fim > pad.fim) && a.ini && a.fim && <Banner kind="warn">O aditivo passa do período do PAD ({dateBR(pad.ini)} a {dateBR(pad.fim)}). Confira as datas aprovadas.</Banner>}
+      <div className="card flush" style={{ boxShadow: "none" }}>
+        <ItensEditor itens={a.itens} onChange={(itens) => setA({ ...a, itens })} ro={false} base={a} porItem={tmp.porItem} prefixo="a0-" />
+      </div>
+      <Field label="Justificativa / parecer" id="ad-obs"><textarea id="ad-obs" rows={2} value={a.obs} onChange={(e: any) => setA({ ...a, obs: e.target.value })} /></Field>
+      {erro && <Banner kind="err">{erro}</Banner>}
+      {conf ? (
+        <div className="row"><span className="small">Excluir este aditivo?</span><button className="btn danger" onClick={() => gravar((pad.aditivos || []).filter((x) => x.id !== a.id), "Aditivo excluído.", "excluir aditivo do PAD")}>Excluir</button><button className="btn sec" onClick={() => setConf(false)}>Cancelar</button></div>
+      ) : (
+        <div className="row"><button className="btn" onClick={salvar}>Salvar aditivo</button><button className="btn sec" onClick={onClose}>Cancelar</button>
+          {!novo && can("admin") && <button className="btn danger" onClick={() => setConf(true)}>Excluir</button>}</div>
+      )}
+    </Modal>
   );
 }
 

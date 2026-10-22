@@ -180,7 +180,7 @@ export default function Checklist() {
                     const s2 = situacao(pd, todayISO());
                     return (
                       <div className="row between" key={pd.id}>
-                        <span className="small"><b>PAD v{pd.versao}</b> · {servicos[pd.pacote]?.nome} · {dateBR(pd.ini)} a {dateBR(pd.fim)} <span className={`pill ${s2.kind}`}>{s2.label}</span></span>
+                        <span className="small"><b>PAD v{pd.versao}</b>{pd.codSesab ? ` · SESAB ${pd.codSesab}` : ""} · {servicos[pd.pacote]?.nome}{pd.pacoteFreq === "alternados" ? " (dias alternados)" : ""} · {dateBR(pd.ini)} a {dateBR(pd.fim)}{(pd.aditivos || []).some((x) => x.status === "aprovado") ? ` · ${(pd.aditivos || []).filter((x) => x.status === "aprovado").length} aditivo(s)` : ""} <span className={`pill ${s2.kind}`}>{s2.label}</span></span>
                         <span className="row" style={{ gap: 6 }}>
                           {aplicado ? <span className="pill ok">Aplicado neste mês</span> : editavel && <button className="btn sm" onClick={() => aplicarPad(pd)}>Aplicar o PAD neste mês</button>}
                           <button className="btn sm sec" onClick={() => go("pad", { id: pd.id })}>Ver PAD</button>
